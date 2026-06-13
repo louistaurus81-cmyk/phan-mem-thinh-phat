@@ -63,8 +63,12 @@ const DEFAULT_PRINT_SETTINGS: PrintSettings = {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem('thinhphat_v2_active_tab') || 'dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('thinhphat_v2_active_tab', activeTab);
+  }, [activeTab]);
 
   // Master local States
   const [printSettings, setPrintSettings] = useState<PrintSettings>(DEFAULT_PRINT_SETTINGS);
