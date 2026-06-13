@@ -237,7 +237,7 @@ export default function RepairManager({
           <input 
             id="search-repairs"
             type="text"
-            placeholder="Tìm theo Mã biên nhận, Tên máy, Serial, IMEI hay Khách hàng..."
+            placeholder="Tìm theo Mã biên nhận, Tên máy, Serial, IMEI, Tên KH hay Số ĐT..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full text-xs md:text-sm bg-slate-50 border border-slate-100 pl-10 pr-4 py-3 rounded-xl focus:outline-hidden focus:border-indigo-500 transition-colors"
@@ -661,19 +661,21 @@ export default function RepairManager({
                   </div>
 
                   {customerMode === 'select' ? (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Khách Hàng</label>
-                      <select 
-                        value={selectedCustomerId}
-                        onChange={e => setSelectedCustomerId(e.target.value)}
-                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                        required
-                      >
-                        <option value="">-- Chọn khách hàng sẵn có --</option>
-                        {customers.map(c => (
-                          <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
-                        ))}
-                      </select>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Khách Hàng</label>
+                        <select
+                          value={selectedCustomerId}
+                          onChange={e => setSelectedCustomerId(e.target.value)}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
+                          required
+                        >
+                          <option value="">-- Chọn khách hàng sẵn có --</option>
+                          {customers.map(c => (
+                            <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-4">

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings } from '../types';
+import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings, ProductIMEI } from '../types';
 import { 
   Cpu, 
   Trash2, 

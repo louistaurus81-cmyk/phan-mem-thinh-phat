@@ -468,6 +468,10 @@ export default function App() {
     saveCustomers([...customers, customer]);
   };
 
+  const handleEditCustomer = (customer: Customer) => {
+    saveCustomers(customers.map(c => c.id === customer.id ? customer : c));
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row antialiased p-4 md:p-6 gap-6">
       
@@ -540,7 +544,7 @@ export default function App() {
                     { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
                     { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
                     { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-                  ].filter(tab => (tab.id !== 'accounts' && tab.id !== 'printSettings') || currentUser?.role === 'admin').map(tab => {
+                  ].filter(tab => !['accounts', 'printSettings'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.id;
                     return (
@@ -623,7 +627,7 @@ export default function App() {
               { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
               { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
               { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-            ].filter(tab => (tab.id !== 'accounts' && tab.id !== 'printSettings') || currentUser?.role === 'admin').map(tab => {
+            ].filter(tab => !['accounts', 'printSettings'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
@@ -804,6 +808,7 @@ export default function App() {
             {activeTab === 'warranties' && (
               <WarrantyManager 
                 warranties={warranties}
+                repairs={repairs}
                 users={users}
                 currentUser={currentUser!}
                 onAddWarranty={handleAddWarranty}
@@ -817,6 +822,7 @@ export default function App() {
                 invoices={invoices}
                 repairs={repairs}
                 onAddCustomer={handleAddCustomer}
+                onEditCustomer={handleEditCustomer}
               />
             )}
 

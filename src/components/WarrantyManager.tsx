@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { WarrantyCard, Customer, User, SalesInvoice } from '../types';
+import { WarrantyCard, Customer, User, SalesInvoice, RepairTicket } from '../types';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Search, 
@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface WarrantyManagerProps {
   warranties: WarrantyCard[];
+  repairs: RepairTicket[];
   users: User[];
   currentUser: User;
   onAddWarranty: (card: WarrantyCard) => void;
@@ -26,22 +27,48 @@ interface WarrantyManagerProps {
 
 export default function WarrantyManager({
   warranties,
+  repairs,
   users,
   currentUser,
   onAddWarranty,
   invoices
-}: WarrantyManagerProps) {
+ }: WarrantyManagerProps) {
   const [portalSearch, setPortalSearch] = useState('');
-  const [activeSearchResult, setActiveSearchResult] = useState<WarrantyCard | null>(null);
+  const [activeSearchResult, setActiveSearchResult] = useState<{ type: 'warranty' | 'repair', data: WarrantyCard | RepairTicket } | null>(null);
   const [searched, setSearched] = useState(false);
 
   // Use Barcode Scanner to quickly set portal search and search instantly
   useBarcodeScanner((barcode) => {
     setPortalSearch(barcode);
-    const match = warranties.find(w => 
-      w.serialNumber.toLowerCase() === barcode.trim().toLowerCase()
+    const query = barcode.trim().toLowerCase();
+
+    // Search Warranty
+    const warrantyMatch = warranties.find(w => 
+      w.serialNumber.toLowerCase() === query ||
+      w.customerName.toLowerCase().includes(query) ||
+      w.customerPhone.includes(query)
     );
-    setActiveSearchResult(match || null);
+
+    if (warrantyMatch) {
+       setActiveSearchResult({ type: 'warranty', data: warrantyMatch });
+       setSearched(true);
+       return;
+    }
+
+    // Search Repair
+    const repairMatch = repairs.find(r => 
+      r.deviceSerial.toLowerCase() === query ||
+      r.customerName.toLowerCase().includes(query) ||
+      r.customerPhone.includes(query)
+    );
+    
+    if (repairMatch) {
+        setActiveSearchResult({ type: 'repair', data: repairMatch });
+        setSearched(true);
+        return;
+    }
+
+    setActiveSearchResult(null);
     setSearched(true);
   });
 
@@ -75,12 +102,40 @@ export default function WarrantyManager({
     e.preventDefault();
     if (!portalSearch.trim()) return;
 
-    const match = warranties.find(w => 
-      w.serialNumber.toLowerCase() === portalSearch.trim().toLowerCase()
+    const query = portalSearch.trim().toLowerCase();
+
+    // Search Warranty
+    const warrantyMatch = warranties.find(w => 
+      w.serialNumber.toLowerCase() === query ||
+      w.customerName.toLowerCase().includes(query) ||
+      w.customerPhone.includes(query)
     );
 
-    setActiveSearchResult(match || null);
+    if (warrantyMatch) {
+       setActiveSearchResult({ type: 'warranty', data: warrantyMatch });
+       setSearched(true);
+       return;
+    }
+
+    // Search Repair
+    const repairMatch = repairs.find(r => 
+      r.deviceSerial.toLowerCase() === query ||
+      r.customerName.toLowerCase().includes(query) ||
+      r.customerPhone.includes(query)
+    );
+    
+    if (repairMatch) {
+        setActiveSearchResult({ type: 'repair', data: repairMatch });
+        setSearched(true);
+        return;
+    }
+
+    setActiveSearchResult(null);
     setSearched(true);
+  };
+
+  const formatVND = (value: number) => {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
   };
 
   // Helper to compute remaining days from today (2026-06-13)
@@ -220,59 +275,92 @@ export default function WarrantyManager({
                 className="pt-4"
               >
                 {activeSearchResult ? (
-                  <div className="bg-white/95 text-slate-800 rounded-2xl p-6 text-left border border-slate-100 shadow-lg space-y-4 max-w-xl mx-auto backdrop-blur-xs">
-                    <div className="flex justify-between items-start gap-4">
-                      <div 
-                        className={activeSearchResult.linkedInvoiceId ? 'cursor-pointer group' : ''}
-                        onClick={() => {
-                          if (activeSearchResult.linkedInvoiceId) {
-                            const inv = invoices.find(i => i.id === activeSearchResult.linkedInvoiceId);
-                            if (inv) setViewInvoiceModal(inv);
-                          }
-                        }}
-                      >
-                        <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-sm">KÍCH HOẠT HỢP LỆ</span>
-                        <h4 className={`font-bold text-lg mt-1 line-clamp-1 ${activeSearchResult.linkedInvoiceId ? 'text-indigo-600 group-hover:text-indigo-700 underline decoration-indigo-200 underline-offset-2' : 'text-slate-900'}`}>
-                          {activeSearchResult.productName}
-                        </h4>
-                        {activeSearchResult.linkedInvoiceId && (
-                           <p className="text-[10px] text-indigo-500 mt-1 italic">👆 Nhấn vào đây để xem chi tiết hoá đơn / cấu hình</p>
-                        )}
-                      </div>
-                      
-                      {/* Live calculated remaining time */}
+                  activeSearchResult.type === 'warranty' ? (
+                    <div className="bg-white/95 text-slate-800 rounded-2xl p-6 text-left border border-slate-100 shadow-lg space-y-4 max-w-xl mx-auto backdrop-blur-xs">
                       {(() => {
-                        const coverage = getWarrantyStatus(activeSearchResult.expiryDate);
+                         const w = activeSearchResult.data as WarrantyCard;
+                         const coverage = getWarrantyStatus(w.expiryDate);
+                         return (
+                           <>
+                             <div className="flex justify-between items-start gap-4">
+                               <div 
+                                 className={w.linkedInvoiceId ? 'cursor-pointer group' : ''}
+                                 onClick={() => {
+                                   if (w.linkedInvoiceId) {
+                                     const inv = invoices.find(i => i.id === w.linkedInvoiceId);
+                                     if (inv) setViewInvoiceModal(inv);
+                                   }
+                                 }}
+                               >
+                                 <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-sm">KÍCH HOẠT HỢP LỆ</span>
+                                 <h4 className={`font-bold text-lg mt-1 line-clamp-1 ${w.linkedInvoiceId ? 'text-indigo-600 group-hover:text-indigo-700 underline decoration-indigo-200 underline-offset-2' : 'text-slate-900'}`}>
+                                   {w.productName}
+                                 </h4>
+                                 {w.linkedInvoiceId && (
+                                    <p className="text-[10px] text-indigo-500 mt-1 italic">👆 Nhấn vào đây để xem chi tiết hoá đơn / cấu hình</p>
+                                 )}
+                               </div>
+                               <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${coverage.color}`}>
+                                 {coverage.text}
+                               </span>
+                             </div>
+                             <div className="border-t border-slate-100 pt-4 grid grid-cols-2 gap-4 text-xs">
+                               <div className="space-y-1">
+                                 <span className="text-slate-400 font-semibold block uppercase text-[10px]">THÔNG TIN KHÁCH HÀNG</span>
+                                 <p className="font-bold text-slate-800 flex items-center gap-1"><UserIcon className="w-3.5 h-3.5 text-slate-400" /> {w.customerName}</p>
+                                 <p className="text-slate-500 flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-slate-400" /> {w.customerPhone}</p>
+                                 {w.processedBy && (
+                                   <p className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-sm px-1.5 py-0.5 w-fit font-bold mt-1">👤 Kích hoạt: {w.processedBy}</p>
+                                 )}
+                               </div>
+                               <div className="space-y-1">
+                                 <span className="text-slate-400 font-semibold block uppercase text-[10px]">MỐC THỜI GIAN</span>
+                                 <p className="text-slate-700 flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-slate-400" /> Nhận máy: {w.purchaseDate}</p>
+                                 <p className="text-slate-700 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-slate-400" /> Hết hạn: {w.expiryDate}</p>
+                               </div>
+                             </div>
+                             {w.notes && (
+                               <div className="bg-slate-50 p-2.5 rounded-lg text-[11px] text-slate-500 italic border border-slate-100">
+                                 Ghi chú điều khoản: {w.notes}
+                               </div>
+                             )}
+                           </>
+                         );
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="bg-white/95 text-slate-800 rounded-2xl p-6 text-left border border-slate-100 shadow-lg space-y-4 max-w-xl mx-auto backdrop-blur-xs">
+                      {(() => {
+                        const r = activeSearchResult.data as RepairTicket;
                         return (
-                          <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${coverage.color}`}>
-                            {coverage.text}
-                          </span>
+                          <>
+                            <div className="flex justify-between items-start gap-4">
+                              <div>
+                                <span className="text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-sm uppercase">Phiếu Sửa Chữa</span>
+                                <h4 className="font-bold text-lg mt-1 text-slate-900 line-clamp-1">{r.ticketNumber}</h4>
+                                <p className="text-sm font-semibold text-slate-700">{r.deviceName}</p>
+                              </div>
+                              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${r.status === 'completed' ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'}`}>
+                                {r.status === 'completed' ? 'Đã xong' : 'Đang xử lý'}
+                              </span>
+                            </div>
+                            <div className="border-t border-slate-100 pt-4 grid grid-cols-2 gap-4 text-xs">
+                              <div className="space-y-1">
+                                <span className="text-slate-400 font-semibold block uppercase text-[10px]">THÔNG TIN KHÁCH HÀNG</span>
+                                <p className="font-bold text-slate-800 flex items-center gap-1"><UserIcon className="w-3.5 h-3.5 text-slate-400" /> {r.customerName}</p>
+                                <p className="text-slate-500 flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-slate-400" /> {r.customerPhone}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-slate-400 font-semibold block uppercase text-[10px]">CHI TIẾT DỊCH VỤ</span>
+                                <p className="text-slate-700">Kỹ thuật: {r.technician}</p>
+                                <p className="text-slate-700 font-bold text-sm">Chi phí: {formatVND(r.actualCost || r.estimatedCost)}</p>
+                              </div>
+                            </div>
+                          </>
                         );
                       })()}
                     </div>
-
-                    <div className="border-t border-slate-100 pt-4 grid grid-cols-2 gap-4 text-xs">
-                      <div className="space-y-1">
-                        <span className="text-slate-400 font-semibold block uppercase text-[10px]">THÔNG TIN KHÁCH HÀNG</span>
-                        <p className="font-bold text-slate-800 flex items-center gap-1"><UserIcon className="w-3.5 h-3.5 text-slate-400" /> {activeSearchResult.customerName}</p>
-                        <p className="text-slate-500 flex items-center gap-1"><Phone className="w-3.5 h-3.5 text-slate-400" /> {activeSearchResult.customerPhone}</p>
-                        {activeSearchResult.processedBy && (
-                          <p className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-sm px-1.5 py-0.5 w-fit font-bold mt-1">👤 Kích hoạt: {activeSearchResult.processedBy}</p>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-slate-400 font-semibold block uppercase text-[10px]">MỐC THỜI GIAN</span>
-                        <p className="text-slate-700 flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-slate-400" /> Nhận máy: {activeSearchResult.purchaseDate}</p>
-                        <p className="text-slate-700 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-slate-400" /> Hết hạn: {activeSearchResult.expiryDate}</p>
-                      </div>
-                    </div>
-
-                    {activeSearchResult.notes && (
-                      <div className="bg-slate-50 p-2.5 rounded-lg text-[11px] text-slate-500 italic border border-slate-100">
-                        Ghi chú điều khoản: {activeSearchResult.notes}
-                      </div>
-                    )}
-                  </div>
+                  )
                 ) : (
                   <div className="bg-rose-50/15 border border-rose-500/20 rounded-2xl p-6 max-w-md mx-auto text-center space-y-2">
                     <ShieldX className="w-10 h-10 text-rose-400 mx-auto" />

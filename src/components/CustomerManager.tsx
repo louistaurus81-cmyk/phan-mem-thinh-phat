@@ -20,13 +20,15 @@ interface CustomerManagerProps {
   invoices: SalesInvoice[];
   repairs: RepairTicket[];
   onAddCustomer: (customer: Customer) => void;
+  onEditCustomer: (customer: Customer) => void;
 }
 
 export default function CustomerManager({
   customers,
   invoices,
   repairs,
-  onAddCustomer
+  onAddCustomer,
+  onEditCustomer
 }: CustomerManagerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -35,6 +37,7 @@ export default function CustomerManager({
   
   // Selected Profile side state
   const [activeCustomerId, setActiveCustomerId] = useState<string | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
 
   // Selected details view modal states
   const [selectedInvoiceForModal, setSelectedInvoiceForModal] = useState<SalesInvoice | null>(null);
@@ -77,25 +80,31 @@ export default function CustomerManager({
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
   };
 
-  // Create new customer submit
-  const handleCreateCustomer = (e: React.FormEvent) => {
+  // Create or Edit customer submit
+  const handleSubmitCustomer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !phone.trim()) {
       alert('Vui lòng điền họ tên và số điện thoại!');
       return;
     }
 
-    const newCustomer: Customer = {
-      id: `c_${Date.now()}`,
+    const customerData: Customer = {
+      id: editingCustomer ? editingCustomer.id : `c_${Date.now()}`,
       name: name.trim(),
       phone: phone.trim(),
       email: email.trim() || undefined,
       address: address.trim() || undefined,
-      createdAt: new Date().toISOString()
+      createdAt: editingCustomer ? editingCustomer.createdAt : new Date().toISOString()
     };
 
-    onAddCustomer(newCustomer);
+    if (editingCustomer) {
+        onEditCustomer(customerData);
+    } else {
+        onAddCustomer(customerData);
+    }
+
     setShowAddModal(false);
+    setEditingCustomer(null);
 
     // reset fields
     setName('');
@@ -190,12 +199,27 @@ export default function CustomerManager({
                     <p className="text-[10px] text-slate-400 mt-0.5">Khách hàng thành viên</p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => setActiveCustomerId(null)}
-                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={() => {
+                        setEditingCustomer(activeCustomer);
+                        setName(activeCustomer.name);
+                        setPhone(activeCustomer.phone);
+                        setEmail(activeCustomer.email || '');
+                        setAddress(activeCustomer.address || '');
+                        setShowAddModal(true); // Reusing showAddModal for edit too? Or create a separate one? Maybe rename/reuse.
+                    }}
+                    className="text-indigo-600 hover:text-indigo-800 p-2 cursor-pointer text-xs font-semibold"
+                  >
+                    Chỉnh sửa
+                  </button>
+                  <button 
+                    onClick={() => setActiveCustomerId(null)}
+                    className="text-slate-400 hover:text-slate-600 p-2 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               {/* CRM Info fields */}
@@ -311,16 +335,16 @@ export default function CustomerManager({
               className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-md z-10 relative"
             >
               <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
-                <h3 className="text-base font-bold text-slate-900">Đăng Ký Hồ Sơ Khách Hàng</h3>
+                <h3 className="text-base font-bold text-slate-900">{editingCustomer ? 'Chỉnh Sửa Hồ Sơ Khách Hàng' : 'Đăng Ký Hồ Sơ Khách Hàng'}</h3>
                 <button 
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => { setShowAddModal(false); setEditingCustomer(null); }}
                   className="p-1 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleCreateCustomer} className="space-y-4">
+              <form onSubmit={handleSubmitCustomer} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Họ Tên Khách Hàng *</label>
                   <input 
@@ -374,7 +398,7 @@ export default function CustomerManager({
                 <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
                   <button 
                     type="button" 
-                    onClick={() => setShowAddModal(false)}
+                    onClick={() => { setShowAddModal(false); setEditingCustomer(null); }}
                     className="px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 rounded-lg cursor-pointer"
                   >
                     Hỷ bỏ
@@ -384,7 +408,7 @@ export default function CustomerManager({
                     type="submit"
                     className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg cursor-pointer"
                   >
-                    Tạo hồ sơ khách
+                    {editingCustomer ? 'Lưu Thay Đổi' : 'Tạo hồ sơ khách'}
                   </button>
                 </div>
               </form>
