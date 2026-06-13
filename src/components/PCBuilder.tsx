@@ -20,9 +20,12 @@ import { motion, AnimatePresence } from 'motion/react';
 
 interface PCBuilderProps {
   products: Product[];
+  imeis: ProductIMEI[];
   customers: Customer[];
   onAddInvoice: (invoice: SalesInvoice) => void;
   onAddCustomer: (customer: Customer) => void;
+  onUpdateProductStock: (id: string, newStock: number) => void;
+  onUpdateImeis: (imeis: ProductIMEI[]) => void;
   currentUser: { fullName: string; role: string };
   printSettings?: PrintSettings;
 }
@@ -32,6 +35,7 @@ interface BuildItem {
   slotName: string;
   productId: string;
   productName: string;
+  selectedImei?: string;
   price: number;
   originalPrice: number;
   quantity: number;
@@ -46,6 +50,7 @@ const DEFAULT_SLOTS = [
   { id: 'ssd', name: 'Ổ cứng lưu trữ (SSD/HDD)', icon: '💾' },
   { id: 'psu', name: 'Nguồn máy tính (PSU)', icon: '⚡' },
   { id: 'case', name: 'Vỏ máy tính (Case)', icon: '📦' },
+  { id: 'fancase', name: 'Quạt tản nhiệt (FAN CASE)', icon: '🌀' },
   { id: 'cooling', name: 'Tản nhiệt (CPU Cooler)', icon: '❄️' },
   { id: 'monitor', name: 'Màn hình máy tính', icon: '🖥️' },
   { id: 'accessories', name: 'Bàn phím, chuột & phím', icon: '⌨️' }
@@ -53,9 +58,12 @@ const DEFAULT_SLOTS = [
 
 export default function PCBuilder({
   products,
+  imeis,
   customers,
   onAddInvoice,
   onAddCustomer,
+  onUpdateProductStock,
+  onUpdateImeis,
   currentUser,
   printSettings
 }: PCBuilderProps) {
@@ -66,12 +74,16 @@ export default function PCBuilder({
       slotName: slot.name,
       productId: '',
       productName: '',
+      selectedImei: '',
       price: 0,
       originalPrice: 0,
       quantity: 1,
       warrantyMonths: 36 // default 36 months for hardware components
     }))
   );
+
+  // IMEI Selection state
+  const [selectingImeiFor, setSelectingImeiFor] = useState<Product | null>(null);
 
   // Search/selection states for picking products
   const [activeSlotId, setActiveSlotId] = useState<string | null>(null);
@@ -107,6 +119,7 @@ export default function PCBuilder({
     ssd: ['ssd', 'hdd', 'ổ cứng', 'nvme', 'sata', 'm2', 'samsung', 'kingston', 'crucial'],
     psu: ['nguồn', 'psu', 'power', '650w', '750w', '850w', 'antec', 'cooler master'],
     case: ['case', 'vỏ machine', 'vỏ máy', 'vỏ case', 'xigmatek', 'sama'],
+    fancase: ['fan', 'quạt', 'case fan'],
     cooling: ['tản nhiệt', 'cooler', 'aio', 'tản khí', 'tản nước'],
     monitor: ['màn hình', 'monitor', 'ips', 'gaming monitor', 'dell', 'lg', 'asus', 'msi'],
     accessories: ['bàn phím', 'chuột', 'keyboard', 'mouse', 'tai nghe', 'lót chuột']
@@ -136,8 +149,12 @@ export default function PCBuilder({
       );
     }
 
-    return slotProducts;
-  }, [products, activeSlotId, searchQuery]);
+    // Always exclude out of stock items
+    return slotProducts.filter(p => {
+      const available = p.hasImei ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length : p.stock;
+      return available > 0;
+    });
+  }, [products, imeis, activeSlotId, searchQuery]);
 
   // Money format
   const formatVND = (value: number) => {
@@ -149,7 +166,7 @@ export default function PCBuilder({
     setBuild(prev => 
       prev.map(item => 
         item.slotId === slotId 
-          ? { ...item, productId: '', productName: '', price: 0, originalPrice: 0, quantity: 1, warrantyMonths: 12 }
+          ? { ...item, productId: '', productName: '', selectedImei: '', price: 0, originalPrice: 0, quantity: 1, warrantyMonths: 12 }
           : item
       )
     );
@@ -166,7 +183,7 @@ export default function PCBuilder({
   };
 
   // Confirm slot item selection
-  const handleSelectProduct = (product: Product) => {
+  const handleSelectProduct = (product: Product, imei?: string) => {
     if (!activeSlotId) return;
     
     setBuild(prev => 
@@ -176,6 +193,7 @@ export default function PCBuilder({
               ...item, 
               productId: product.id, 
               productName: product.name, 
+              selectedImei: imei,
               price: product.price, 
               originalPrice: product.price, 
               quantity: 1, 
@@ -347,7 +365,8 @@ export default function PCBuilder({
       productName: `[PC Build - ${item.slotName}] ${item.productName}`,
       quantity: item.quantity,
       price: item.price,
-      warrantyMonths: item.warrantyMonths
+      warrantyMonths: item.warrantyMonths,
+      imeis: item.selectedImei ? [item.selectedImei] : undefined
     }));
 
     // Form note indicating custom PC configuration list
@@ -439,7 +458,10 @@ export default function PCBuilder({
                       <div className="min-w-0">
                         <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none">{item.slotName}</span>
                         {isSelected ? (
-                          <h4 className="font-bold text-slate-900 text-xs mt-1 truncate">{item.productName}</h4>
+                          <div className="mt-1">
+                            <h4 className="font-bold text-slate-900 text-xs truncate">{item.productName}</h4>
+                            {item.selectedImei && <p className="text-[10px] text-indigo-700 font-mono font-bold">IMEI: {item.selectedImei}</p>}
+                          </div>
                         ) : (
                           <p onClick={() => handleOpenPicker(item.slotId)} className="text-slate-400 italic text-[11px] mt-1 cursor-pointer hover:text-indigo-600 hover:underline">Chưa cắm linh kiện. Bấm để lắp ráp...</p>
                         )}
@@ -517,7 +539,7 @@ export default function PCBuilder({
                         onClick={() => handleOpenPicker(item.slotId)}
                         className="w-full sm:w-auto flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider font-extrabold bg-slate-900 max-sm:py-2 text-white hover:bg-blue-600 px-3.5 py-1.5 rounded-xl cursor-pointer"
                       >
-                        <Plus className="w-3.5 h-3.5" /> Chọn máy
+                        <Plus className="w-3.5 h-3.5" /> Thêm
                       </button>
                     )}
 
@@ -774,12 +796,12 @@ export default function PCBuilder({
                     {filteredProductsToChoose.map(p => (
                       <div 
                         key={p.id}
-                        onClick={() => handleSelectProduct(p)}
+                        onClick={() => p.hasImei ? setSelectingImeiFor(p) : handleSelectProduct(p)}
                         className="p-3 bg-slate-50 hover:bg-indigo-50/40 rounded-xl border border-slate-100 hover:border-indigo-100/50 flex justify-between items-center cursor-pointer transition text-xs"
                       >
                         <div className="min-w-0 pr-4">
                           <h5 className="font-bold text-slate-800 truncate leading-snug">{p.name}</h5>
-                          <p className="text-[10px] text-slate-400 font-mono mt-1">SKU/ID: {p.sku} | Tồn: <span className="font-bold text-slate-600">{p.stock}</span> | BH: {p.warrantyMonths}T</p>
+                          <p className="text-[10px] text-slate-400 font-mono mt-1">SKU/ID: {p.sku} | Tồn: <span className="font-bold text-slate-600">{p.hasImei ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length : p.stock}</span> | BH: {p.warrantyMonths}T</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-extrabold text-slate-900">{formatVND(p.price)}</p>
@@ -1124,6 +1146,43 @@ export default function PCBuilder({
         )}
       </AnimatePresence>
 
+      {/* IMEI Selector Modal */}
+      <AnimatePresence>
+        {selectingImeiFor && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setSelectingImeiFor(null)} />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-lg z-10"
+            >
+              <div className="flex justify-between items-center mb-4">
+                 <h2 className="text-lg font-bold">Chọn IMEI cho {selectingImeiFor.name}</h2>
+                 <button onClick={() => setSelectingImeiFor(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+              </div>
+              <div className="max-h-80 overflow-y-auto space-y-2">
+                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').map(i => (
+                  <button
+                    key={i.id}
+                    onClick={() => {
+                      handleSelectProduct(selectingImeiFor, i.imei);
+                      setSelectingImeiFor(null);
+                    }}
+                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 transition"
+                  >
+                    <span className="font-mono font-bold text-slate-800">{i.imei}</span>
+                  </button>
+                ))}
+                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').length === 0 && (
+                  <p className="text-center text-slate-500 py-4">Không có IMEI nào đang sẵn kho.</p>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      
     </div>
   );
 }

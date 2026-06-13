@@ -120,7 +120,7 @@ export default function WarrantyManager({
       const today = new Date('2026-06-13');
       const isExpired = new Date(w.expiryDate).getTime() < today.getTime();
       return matchText && (statusFilter === 'expired' ? isExpired : !isExpired);
-    });
+    }).sort((a,b) => b.id.localeCompare(a.id));
   }, [warranties, dirSearch, statusFilter]);
 
   // Handle Manual Custom Warranty Creation
@@ -623,7 +623,12 @@ export default function WarrantyManager({
                     <tbody className="divide-y divide-slate-100">
                       {viewInvoiceModal.items.map((it, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-semibold text-slate-800 max-w-[200px] truncate" title={it.productName}>{it.productName}</td>
+                          <td className="py-3 px-4 font-semibold text-slate-800 max-w-[200px] truncate" title={it.productName}>
+                            {it.productName}
+                            {it.imeis && it.imeis.length > 0 && (
+                              <p className="text-[10px] text-indigo-700 font-bold mt-0.5">IMEIs: {it.imeis.join(', ')}</p>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-center font-bold text-slate-600">{it.quantity}</td>
                           <td className="py-3 px-4 text-center text-indigo-600 font-bold">{it.warrantyMonths ? `${it.warrantyMonths}T` : 'N/A'}</td>
                         </tr>

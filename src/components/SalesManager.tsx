@@ -391,7 +391,6 @@ export default function SalesManager({
     cart.forEach(item => {
       const prod = products.find(p => p.id === item.productId);
       if (prod) {
-        onUpdateProductStock(item.productId, prod.stock - item.quantity);
         
         if (item.imeis && item.imeis.length > 0) {
           item.imeis.forEach(imeiToMark => {
@@ -1854,6 +1853,9 @@ export default function SalesManager({
                         <div className="pr-2">
                           <p className="text-slate-950 font-bold">{item.productName}</p>
                           <p className="text-[10px] text-slate-500 font-bold">Số lượng: {item.quantity} × {formatVND(item.price)}</p>
+                          {item.imeis && item.imeis.length > 0 && (
+                            <p className="text-[10px] text-indigo-700 font-bold mt-0.5">IMEIs: {item.imeis.join(', ')}</p>
+                          )}
                         </div>
                         <span className="font-extrabold text-slate-900 flex-shrink-0 align-bottom self-end">{formatVND(item.price * item.quantity)}</span>
                       </div>

@@ -306,19 +306,37 @@ export default function App() {
   const handleAddInvoice = (newInvoice: SalesInvoice) => {
     saveInvoices([...invoices, newInvoice]);
 
-    // Deduct stock for products sold
+    // Deduct stock for products sold & mark IMEIs as sold
     let hasStockUpdate = false;
-    const updatedProducts = products.map(p => {
-      const soldItem = newInvoice.items.find(item => item.productId === p.id);
-      if (soldItem) {
-        hasStockUpdate = true;
-        return { ...p, stock: Math.max(0, p.stock - soldItem.quantity) };
-      }
-      return p;
+    let hasImeiUpdate = false;
+
+    // Use a copy of products and imeis to mutate
+    let updatedProducts = [...products];
+    let updatedImeis = [...imeis];
+
+    newInvoice.items.forEach(item => {
+        const prod = updatedProducts.find(p => p.id === item.productId);
+        if (prod) {
+            hasStockUpdate = true;
+            prod.stock = Math.max(0, prod.stock - item.quantity);
+            
+            if (prod.hasImei && item.imeis && item.imeis.length > 0) {
+                hasImeiUpdate = true;
+                item.imeis.forEach(imeiToMark => {
+                    const imeiIdx = updatedImeis.findIndex(i => i.imei === imeiToMark && i.status === 'in_stock');
+                    if (imeiIdx > -1) {
+                        updatedImeis[imeiIdx] = { ...updatedImeis[imeiIdx], status: 'sold', invoiceId: newInvoice.id };
+                    }
+                });
+            }
+        }
     });
 
     if (hasStockUpdate) {
       saveProducts(updatedProducts);
+    }
+    if (hasImeiUpdate) {
+      saveImeis(updatedImeis);
     }
 
     // Relational auto-provision of active warranty records!
@@ -518,7 +536,7 @@ export default function App() {
                     { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
                     { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
                     { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
-                    { id: 'warranties', label: 'Tra Bảo Hành', icon: ShieldCheck },
+                    { id: 'warranties', label: 'Tra Cứu Bảo Hành', icon: ShieldCheck },
                     { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
                     { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
                     { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
@@ -601,7 +619,7 @@ export default function App() {
               { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
               { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
               { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
-              { id: 'warranties', label: 'Tra Bảo Hành', icon: ShieldCheck },
+              { id: 'warranties', label: 'Tra Cứu Bảo Hành', icon: ShieldCheck },
               { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
               { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
               { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
@@ -759,11 +777,14 @@ export default function App() {
             {activeTab === 'buildpc' && (
               <PCBuilder 
                 products={products}
+                imeis={imeis}
                 customers={customers}
                 currentUser={currentUser!}
                 printSettings={printSettings}
                 onAddInvoice={handleAddInvoice}
                 onAddCustomer={handleAddCustomer}
+                onUpdateProductStock={handleUpdateProductStock}
+                onUpdateImeis={saveImeis}
               />
             )}
 
