@@ -1,0 +1,6 @@
+{
+  "name": "Thịnh Phát Computer",
+  "description": "Hệ thống quản lý chuyên nghiệp tích hợp quy trình bán lẻ linh kiện, tiếp nhận sửa chữa thiết bị, tra cứu cơ sở dữ liệu bảo hành điện tử của Thịnh Phát Computer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
