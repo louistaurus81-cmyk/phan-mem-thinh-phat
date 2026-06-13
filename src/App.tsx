@@ -94,14 +94,14 @@ export default function App() {
       const payload = await res.json();
       if (payload.success && payload.db) {
         const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis } = payload.db;
-        if (products) setProducts(products);
-        if (customers) setCustomers(customers);
-        if (invoices) setInvoices(invoices);
-        if (repairs) setRepairs(repairs);
-        if (warranties) setWarranties(warranties);
-        if (categories) setCategories(categories);
-        if (users) setUsers(users);
-        if (imeis) setImeis(imeis);
+        if (products && products.length > 0) setProducts(products);
+        if (customers && customers.length > 0) setCustomers(customers);
+        if (invoices && invoices.length > 0) setInvoices(invoices);
+        if (repairs && repairs.length > 0) setRepairs(repairs);
+        if (warranties && warranties.length > 0) setWarranties(warranties);
+        if (categories && categories.length > 0) setCategories(categories);
+        if (users && users.length > 0) setUsers(users);
+        if (imeis && imeis.length > 0) setImeis(imeis);
         if (settings && settings.length > 0) {
           setPrintSettings(settings[0]);
         }

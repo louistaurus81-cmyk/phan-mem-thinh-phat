@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI } from '../types';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
@@ -62,7 +62,13 @@ export default function SalesManager({
   onUpdateImeis
 }: SalesManagerProps) {
   // Navigation inside SalesManager (either 'pos' or 'invoices' or 'products' or 'categories')
-  const [subTab, setSubTab] = useState<'pos' | 'invoices' | 'products' | 'categories'>('pos');
+  const [subTab, setSubTab] = useState<'pos' | 'invoices' | 'products' | 'categories'>(
+    () => (localStorage.getItem('thinhphat_v2_sales_subtab') as any) || 'pos'
+  );
+  
+  useEffect(() => {
+    localStorage.setItem('thinhphat_v2_sales_subtab', subTab);
+  }, [subTab]);
   
   // Category filter state for catalog navigation
   const [selectedCategory, setSelectedCategory] = useState<string>('Tất cả');
