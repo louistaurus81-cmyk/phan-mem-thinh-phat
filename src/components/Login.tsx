@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { KeyRound, User as UserIcon, LogIn, Sparkles, ShieldCheck } from 'lucide-react';
+import { KeyRound, User as UserIcon, LogIn, ShieldCheck } from 'lucide-react';
 
 interface LoginProps {
   users: User[];
@@ -30,13 +30,6 @@ export default function Login({ users, onLoginSuccess }: LoginProps) {
     }
 
     onLoginSuccess(matchedUser);
-  };
-
-  const handleQuickLogin = (uname: string) => {
-    const matched = users.find(u => u.username === uname);
-    if (matched) {
-      onLoginSuccess(matched);
-    }
   };
 
   return (
@@ -105,38 +98,6 @@ export default function Login({ users, onLoginSuccess }: LoginProps) {
             <LogIn className="w-4 h-4" /> Đăng Nhập Ngay
           </button>
         </form>
-
-        {/* Quick Testing Accounts Section */}
-        <div className="pt-4 border-t border-slate-800 space-y-3">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
-            <Sparkles className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-            <span>ĐĂNG NHẬP NHANH (MÔ PHỎNG SỬ DỤNG)</span>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2">
-            {[
-              { label: 'Chủ cửa hàng (Admin/Owner)', user: 'admin', role: 'admin', color: 'from-blue-600 to-indigo-600' },
-              { label: 'Nhân viên Bán Hàng', user: 'sales', role: 'sales', color: 'from-emerald-600 to-teal-600' },
-              { label: 'Nhân viên Kỹ Thuật (Tech)', user: 'tech', role: 'technician', color: 'from-amber-600 to-orange-600' },
-            ].map(pill => (
-              <button
-                key={pill.user}
-                id={`btn-quick-login-${pill.user}`}
-                type="button"
-                onClick={() => handleQuickLogin(pill.user)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-slate-955 border border-slate-800/80 hover:border-slate-700 transition-all text-xs font-semibold text-slate-300 rounded-xl cursor-pointer text-left hover:bg-slate-800/50"
-              >
-                <div>
-                  <div className="font-bold text-slate-100">{pill.label}</div>
-                  <div className="text-[10px] text-slate-500 font-mono">ID: {pill.user} / Pass: 123</div>
-                </div>
-                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md text-white bg-gradient-to-r ${pill.color} uppercase tracking-wider`}>
-                  {pill.role}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
 
       </div>
     </div>
