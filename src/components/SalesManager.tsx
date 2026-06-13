@@ -127,6 +127,7 @@ export default function SalesManager({
   
   // IMEI Management State
   const [managingImeisFor, setManagingImeisFor] = useState<Product | null>(null);
+  const [selectingImeiFor, setSelectingImeiFor] = useState<Product | null>(null);
 
   // Global Barcode Scanner Listener
   useBarcodeScanner((barcode) => {
@@ -152,7 +153,8 @@ export default function SalesManager({
       const exactMatch = products.find(p => p.sku.toLowerCase() === lowercode);
       if (exactMatch) {
          if (exactMatch.hasImei) {
-            alert('Sản phẩm này quản lý bằng IMEI. Vui lòng quét trực tiếp mã bản thể (IMEI/Serial)!');
+            // Instead of just alert, perhaps open the selector
+            setSelectingImeiFor(exactMatch);
             return;
          }
          addToCart(exactMatch);
@@ -667,7 +669,7 @@ export default function SalesManager({
                         id={`btn-add-to-cart-${prod.id}`}
                         onClick={() => {
                           if (prod.hasImei) {
-                            alert("Sản phẩm này cần được quét/nhập số IMEI cụ thể để đưa vào giỏ hàng.");
+                            setSelectingImeiFor(prod);
                           } else {
                             addToCart(prod);
                           }
@@ -2036,6 +2038,43 @@ export default function SalesManager({
                 </table>
               </div>
 
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* IMEI Selector Modal */}
+      <AnimatePresence>
+        {selectingImeiFor && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setSelectingImeiFor(null)} />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-lg z-10"
+            >
+              <div className="flex justify-between items-center mb-4">
+                 <h2 className="text-lg font-bold">Chọn IMEI cho {selectingImeiFor.name}</h2>
+                 <button onClick={() => setSelectingImeiFor(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+              </div>
+              <div className="max-h-80 overflow-y-auto space-y-2">
+                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').map(i => (
+                  <button
+                    key={i.id}
+                    onClick={() => {
+                      addToCart(selectingImeiFor, i.imei);
+                      setSelectingImeiFor(null);
+                    }}
+                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 transition"
+                  >
+                    <span className="font-mono font-bold text-slate-800">{i.imei}</span>
+                  </button>
+                ))}
+                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').length === 0 && (
+                  <p className="text-center text-slate-500 py-4">Không có IMEI nào đang sẵn kho.</p>
+                )}
+              </div>
             </motion.div>
           </div>
         )}
