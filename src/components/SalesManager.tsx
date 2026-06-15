@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText } from '../types';
+import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText, generateRandomIMEI, generateRandomBarcode, renderCode39SVG } from '../types';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Plus, 
@@ -16,7 +16,10 @@ import {
   Edit,
   MapPin,
   FolderOpen,
-  QrCode
+  QrCode,
+  Sparkles,
+  Printer,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -141,6 +144,9 @@ export default function SalesManager({
   // IMEI Management State
   const [managingImeisFor, setManagingImeisFor] = useState<Product | null>(null);
   const [selectingImeiFor, setSelectingImeiFor] = useState<Product | null>(null);
+  const [imeiInput, setImeiInput] = useState('');
+  const [printingBarcode, setPrintingBarcode] = useState<{ productName: string; code: string } | null>(null);
+  const [deletingImeiId, setDeletingImeiId] = useState<string | null>(null);
 
   // Global Barcode Scanner Listener
   useBarcodeScanner((barcode) => {
@@ -1504,7 +1510,20 @@ export default function SalesManager({
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Mã SKU / Barcode / IMEI *</label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-semibold text-slate-600">Mã SKU / Barcode / IMEI *</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const generated = generateRandomBarcode(newProduct.category || 'GEN');
+                          setNewProduct(prev => ({ ...prev, sku: generated }));
+                        }}
+                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold transition flex items-center gap-0.5 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md border border-indigo-100"
+                        title="Tự động tạo mã vạch cho sản phẩm cũ/không có SKU"
+                      >
+                        <Sparkles className="w-2.5 h-2.5" /> Tạo mã cũ
+                      </button>
+                    </div>
                     <input 
                       id="input-product-sku"
                       type="text"
@@ -1720,7 +1739,20 @@ export default function SalesManager({
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Mã SKU / Barcode / IMEI *</label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-semibold text-slate-600">Mã SKU / Barcode / IMEI *</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const generated = generateRandomBarcode(editingProduct.category || 'GEN');
+                          setEditingProduct(prev => ({ ...prev, sku: generated }));
+                        }}
+                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold transition flex items-center gap-0.5 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md border border-indigo-100"
+                        title="Tự động tạo mã vạch cho sản phẩm cũ/không có SKU"
+                      >
+                        <Sparkles className="w-2.5 h-2.5" /> Tạo mã cũ
+                      </button>
+                    </div>
                     <input 
                       id="edit-product-sku"
                       type="text"
@@ -2059,6 +2091,7 @@ export default function SalesManager({
                   Đóng lại
                 </button>
               </div>
+
             </motion.div>
           </div>
         )}
@@ -2067,38 +2100,36 @@ export default function SalesManager({
       {/* IMEI Manager Modal */}
       <AnimatePresence>
         {managingImeisFor && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setManagingImeisFor(null)} />
             <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col relative"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-2xl max-h-[90vh] flex flex-col z-10"
             >
-              <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+              <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <QrCode className="w-5 h-5 text-indigo-600" />
                     Quản Lý Mã Bản Thể (IMEI/Serial)
-                  </h3>
-                  <p className="text-sm font-semibold text-slate-500 mt-0.5">Sản phẩm: {managingImeisFor.name} - {managingImeisFor.sku}</p>
+                  </h2>
+                  <p className="text-xs font-semibold text-slate-500 mt-0.5">Sản phẩm: {managingImeisFor.name} - {managingImeisFor.sku}</p>
                 </div>
-                <button 
-                  onClick={() => setManagingImeisFor(null)}
-                  className="p-1 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <button onClick={() => setManagingImeisFor(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer"><X className="w-5 h-5"/></button>
               </div>
 
               <div className="flex gap-2 mb-4">
                 <input 
                   type="text"
-                  placeholder="Quét hoặc nhập mã IMEI/Serial mới và nhấn Enter..."
+                  placeholder="Quét, tự gõ hoặc bấm tạo tự động phía dưới..."
+                  value={imeiInput}
+                  onChange={e => setImeiInput(e.target.value)}
                   className="flex-1 text-sm bg-slate-50 border border-slate-200 rounded-xl p-3 focus:outline-hidden focus:border-indigo-500 font-mono focus:bg-white transition-all shadow-xs"
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
-                      const val = e.currentTarget.value.trim();
+                      const val = imeiInput.trim();
                       if (!val) return;
-                      // Check duplicate across everything
                       if (imeis.some(i => i.imei.toLowerCase() === val.toLowerCase())) {
                          alert('Mã IMEI này đã tồn tại trong hệ thống!');
                          return;
@@ -2111,11 +2142,90 @@ export default function SalesManager({
                         addedAt: new Date().toISOString()
                       };
                       onUpdateImeis([...imeis, newImei]);
-                      e.currentTarget.value = '';
+                      setImeiInput('');
                     }
                   }}
                   autoFocus
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = imeiInput.trim();
+                    if (!val) return;
+                    if (imeis.some(i => i.imei.toLowerCase() === val.toLowerCase())) {
+                       alert('Mã IMEI này đã tồn tại trong hệ thống!');
+                       return;
+                    }
+                    const newImei: ProductIMEI = {
+                      id: `imei_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                      productId: managingImeisFor.id,
+                      imei: val,
+                      status: 'in_stock',
+                      addedAt: new Date().toISOString()
+                    };
+                    onUpdateImeis([...imeis, newImei]);
+                    setImeiInput('');
+                  }}
+                  className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-xl cursor-pointer shadow-xs transition"
+                >
+                  Thêm vào kho
+                </button>
+              </div>
+
+              {/* Advanced Generator for Used/Lost Labels */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 mb-4">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">Tạo mã vạch bảo dưỡng mặt hàng cũ / Mất tem</h4>
+                </div>
+                <p className="text-[11px] text-slate-500 mb-3 leading-relaxed font-medium">
+                  Máy cũ hoặc hàng thanh lý bị mất tem sườn/IMEI gốc? Tự tạo mã định danh chuẩn và in trực tiếp nhãn mã vạch dán sau sản phẩm.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const generated = generateRandomIMEI();
+                      setImeiInput(generated);
+                    }}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 text-slate-700 text-[11.5px] font-bold rounded-lg cursor-pointer transition-all flex items-center gap-1"
+                  >
+                    <span>🤖 Tạo IMEI (15 số)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const generated = generateRandomBarcode(managingImeisFor.category);
+                      setImeiInput(generated);
+                    }}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 text-slate-700 text-[11.5px] font-bold rounded-lg cursor-pointer transition-all flex items-center gap-1"
+                  >
+                    <span>🏷️ Tạo Serial Cũ (USED-...)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const isImeiFormat = Math.random() > 0.5;
+                      const generated = isImeiFormat ? generateRandomIMEI() : generateRandomBarcode(managingImeisFor.category);
+                      if (imeis.some(i => i.imei.toLowerCase() === generated.toLowerCase())) {
+                        alert('Mã ngẫu nhiên trùng khớp, vui lòng thử lại!');
+                        return;
+                      }
+                      const newImei: ProductIMEI = {
+                        id: `imei_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                        productId: managingImeisFor.id,
+                        imei: generated,
+                        status: 'in_stock',
+                        addedAt: new Date().toISOString()
+                      };
+                      onUpdateImeis([...imeis, newImei]);
+                      setImeiInput('');
+                    }}
+                    className="px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-[11.5px] font-black rounded-lg cursor-pointer transition-all flex items-center gap-1 border border-indigo-100"
+                  >
+                    <span>⚡ Sinh & Nhập nhanh dòng</span>
+                  </button>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50 rounded-xl p-2 border border-slate-100">
@@ -2125,18 +2235,20 @@ export default function SalesManager({
                       <th className="pb-2 pl-2">Mã định danh (IMEI)</th>
                       <th className="pb-2">Ngày nhập</th>
                       <th className="pb-2">Trạng thái</th>
-                      <th className="pb-2 text-right pr-2">Thao tác</th>
+                      <th className="pb-2 text-right pr-2 animate-pulse">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 placeholder-slate-400">
                     {imeis.filter(i => i.productId === managingImeisFor.id).length === 0 ? (
                        <tr>
-                         <td colSpan={4} className="py-6 text-center text-slate-400 font-semibold italic">Chưa có mã bảo hành cá thể nào. Bắt đầu quét mã!</td>
+                         <td colSpan={4} className="py-6 text-center text-slate-400 font-semibold italic">Chưa có mã bảo hành cá thể nào. Hãy bấm tạo mã nhanh phía trên!</td>
                        </tr>
                     ) : (
                       imeis.filter(i => i.productId === managingImeisFor.id).sort((a,b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()).map(im => (
                         <tr key={im.id} className="hover:bg-slate-100/60 transition-colors">
-                          <td className="py-3 pl-2 font-mono font-bold text-slate-800">{im.imei}</td>
+                          <td className="py-3 pl-2 font-mono font-bold text-slate-800 flex items-center gap-1">
+                            <span>{im.imei}</span>
+                          </td>
                           <td className="py-3 text-slate-500">{new Date(im.addedAt).toLocaleDateString('vi-VN')}</td>
                           <td className="py-3">
                             {im.status === 'in_stock' ? (
@@ -2146,19 +2258,55 @@ export default function SalesManager({
                             )}
                           </td>
                           <td className="py-3 text-right pr-2">
-                             {im.status === 'in_stock' && (
-                               <button 
-                                 onClick={() => {
-                                   if (confirm('Xóa mã định danh này khỏi kho hàng?')) {
-                                     onUpdateImeis(imeis.filter(xi => xi.id !== im.id));
-                                   }
-                                 }}
-                                 className="p-1.5 text-rose-500 hover:bg-rose-100 rounded-lg transition"
-                                 title="Xóa IMEI này"
-                               >
-                                 <Trash2 className="w-4 h-4" />
-                               </button>
-                             )}
+                             <div className="flex items-center justify-end gap-1.5">
+                               {im.status === 'in_stock' && (
+                                 <button
+                                   type="button"
+                                   onClick={() => {
+                                     setPrintingBarcode({
+                                       productName: managingImeisFor.name,
+                                       code: im.imei
+                                     });
+                                   }}
+                                   className="p-1.5 text-indigo-600 hover:bg-indigo-150 rounded-lg transition-all cursor-pointer"
+                                   title="In tem mã vạch dán bảo hành"
+                                 >
+                                   <Printer className="w-3.5 h-3.5" />
+                                 </button>
+                               )}
+                               {im.status === 'in_stock' && (
+                                 deletingImeiId === im.id ? (
+                                   <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 p-1 rounded-xl shadow-xs">
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         onUpdateImeis(imeis.filter(xi => xi.id !== im.id));
+                                         setDeletingImeiId(null);
+                                       }}
+                                       className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black rounded-md cursor-pointer transition-all whitespace-nowrap"
+                                     >
+                                       Xóa luôn
+                                     </button>
+                                     <button
+                                       type="button"
+                                       onClick={() => setDeletingImeiId(null)}
+                                       className="px-1.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-[10px] font-bold rounded-md cursor-pointer transition-all"
+                                     >
+                                       Huỷ
+                                     </button>
+                                   </div>
+                                 ) : (
+                                   <button 
+                                     type="button"
+                                     onClick={() => setDeletingImeiId(im.id)}
+                                     className="p-1.5 text-rose-500 hover:bg-rose-100 rounded-lg transition cursor-pointer"
+                                     title="Xóa IMEI này"
+                                   >
+                                     <Trash2 className="w-3.5 h-3.5" />
+                                   </button>
+                                 )
+                               )}
+                             </div>
                           </td>
                         </tr>
                       ))
@@ -2203,6 +2351,114 @@ export default function SalesManager({
                 {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').length === 0 && (
                   <p className="text-center text-slate-500 py-4">Không có IMEI nào đang sẵn kho.</p>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Barcode & IMEI Label Printer Modal */}
+      <AnimatePresence>
+        {printingBarcode && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" onClick={() => setPrintingBarcode(null)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-sm z-10 border border-slate-100 flex flex-col"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-black text-slate-800 flex items-center gap-1.5 uppercase">
+                  <Printer className="w-4 h-4 text-indigo-600" />
+                  In Tem Mã Vạch Bảo Hành
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setPrintingBarcode(null)}
+                  className="text-slate-400 hover:text-slate-600 transition p-1 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Printable Area Preview */}
+              <div className="border border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50 flex flex-col items-center justify-center relative select-none">
+                <span className="absolute top-1.5 right-2 text-[8px] font-bold text-indigo-500 uppercase tracking-widest">Xem trước nhãn</span>
+                
+                {/* Print container with standard thermal paper dimensions */}
+                <div 
+                  id="printable-barcode-sticker" 
+                  className="bg-white p-4 border border-slate-200/60 rounded-lg shadow-sm w-full font-sans text-center flex flex-col items-center justify-center overflow-hidden"
+                  style={{ minHeight: '160px' }}
+                >
+                  {/* Style block inside print content to guarantee clean prints without margins/headers */}
+                  <style>{`
+                    @media print {
+                      body {
+                        margin: 0;
+                        padding: 0;
+                        background: #fff;
+                        color: #000;
+                        font-family: Arial, sans-serif;
+                      }
+                      #printable-barcode-sticker {
+                        border: none !important;
+                        box-shadow: none !important;
+                        padding: 10px !important;
+                        margin: 0 auto !important;
+                        width: 100% !important;
+                        max-width: 320px !important;
+                        text-align: center !important;
+                      }
+                      .print-no-show { display: none !important; }
+                    }
+                  `}</style>
+                  
+                  {/* Store Name & Header Info */}
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-850 mb-1 max-w-[240px] truncate leading-none">
+                    {printSettings?.storeName || "Cửa Hàng Công Nghệ"}
+                  </p>
+                  
+                  {/* Product Title */}
+                  <p className="text-[9px] font-medium text-slate-500 max-w-[240px] truncate leading-none mb-2">
+                    {printingBarcode.productName}
+                  </p>
+                  
+                  {/* Beautiful SVG Barcoder */}
+                  <div className="w-full my-1 flex justify-center" dangerouslySetInnerHTML={{ __html: renderCode39SVG(printingBarcode.code) }} />
+                  
+                  {/* Stamp/Terms */}
+                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 leading-none">
+                    ⭐ TEM BẢO HÀNH CHÍNH HÃNG ⭐
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPrintingBarcode(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer border border-slate-200 transition"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const printC = document.getElementById('printable-barcode-sticker')?.innerHTML;
+                    const originalC = document.body.innerHTML;
+                    if (printC) {
+                      document.body.innerHTML = printC;
+                      window.print();
+                      document.body.innerHTML = originalC;
+                      window.location.reload();
+                    }
+                  }}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-xl cursor-pointer transition shadow-xs flex items-center justify-center gap-1"
+                >
+                  <Printer className="w-3.5 h-3.5" /> In Tem Nhãn
+                </button>
               </div>
             </motion.div>
           </div>

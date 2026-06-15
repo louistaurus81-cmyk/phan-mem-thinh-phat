@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { RepairTicket, Customer, WarrantyCard, RepairStatus, User, Product, computeExpiryDate } from '../types';
+import { RepairTicket, Customer, WarrantyCard, RepairStatus, User, Product, computeExpiryDate, ProductIMEI } from '../types';
 import { 
   Search, 
   Wrench, 
@@ -14,7 +14,8 @@ import {
   User as UserIcon, 
   AlertCircle,
   FileCheck2,
-  Calendar
+  Calendar,
+  QrCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -25,6 +26,8 @@ interface RepairManagerProps {
   users: User[];
   currentUser: User;
   products: Product[];
+  imeis?: ProductIMEI[];
+  onUpdateImeis?: (imeis: ProductIMEI[]) => void;
   onAddRepair: (ticket: RepairTicket) => void;
   onUpdateRepairStatus: (id: string, status: RepairStatus, finalDetails?: { solution?: string; actualCost?: number; warrantyUntil?: string; note?: string; deliveredAt?: string; usedParts?: { productId: string; name: string; price: number; quantity: number }[]; debtAmount?: number; debtDueDate?: string }) => void;
   onAddCustomer: (customer: Customer) => void;
@@ -38,6 +41,8 @@ export default function RepairManager({
   users,
   currentUser,
   products,
+  imeis = [],
+  onUpdateImeis,
   onAddRepair,
   onUpdateRepairStatus,
   onAddCustomer,
@@ -89,10 +94,11 @@ export default function RepairManager({
   const [showStatusBar, setShowStatusBar] = useState(false);
   const [actualCost, setActualCost] = useState(0);
   const [solution, setSolution] = useState('');
-  const [usedParts, setUsedParts] = useState<{ productId: string; name: string; price: number; quantity: number }[]>([]);
+  const [usedParts, setUsedParts] = useState<{ productId: string; name: string; price: number; quantity: number; imei?: string }[]>([]);
   const [repairWarrantyMonths, setRepairWarrantyMonths] = useState(3); // default 3 months warranty for repair
   const [deliveredAtInput, setDeliveredAtInput] = useState(new Date().toISOString().slice(0, 10));
   const [updateNote, setUpdateNote] = useState('');
+  const [selectingImeiForRepair, setSelectingImeiForRepair] = useState<Product | null>(null);
 
   // Repair debt states
   const [isRepairDebt, setIsRepairDebt] = useState(false);
@@ -117,15 +123,32 @@ export default function RepairManager({
   const [partSearchQuery, setPartSearchQuery] = useState('');
 
   // Handle addition of replacement component & auto calculate cost
-  const handleAddPart = (p: Product) => {
-    const existingIndex = usedParts.findIndex(item => item.productId === p.id);
-    if (existingIndex > -1) {
-      const updated = [...usedParts];
-      updated[existingIndex].quantity += 1;
-      setUsedParts(updated);
+  const handleAddPart = (p: Product, imei?: string) => {
+    if (imei) {
+      // For products with IMEI, we always add them as separate line items to keep track of individual IMEIs
+      setUsedParts(prev => [...prev, { productId: p.id, name: `${p.name} (S/N: ${imei})`, price: p.price, quantity: 1, imei }]);
+      
+      // Update global IMEI list status to sold
+      if (onUpdateImeis) {
+        const updatedImeis = imeis.map(item => {
+          if (item.imei === imei) {
+            return { ...item, status: 'sold' as const };
+          }
+          return item;
+        });
+        onUpdateImeis(updatedImeis);
+      }
     } else {
-      setUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1 }]);
+      const existingIndex = usedParts.findIndex(item => item.productId === p.id && !item.imei);
+      if (existingIndex > -1) {
+        const updated = [...usedParts];
+        updated[existingIndex].quantity += 1;
+        setUsedParts(updated);
+      } else {
+        setUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1 }]);
+      }
     }
+
     // Increment the actual repair bill by the product price automatically!
     setActualCost(prev => prev + p.price);
     // Deduct stock for inventory integrity
@@ -140,6 +163,17 @@ export default function RepairManager({
     // Put stock back
     if (originalProd) {
       onUpdateProductStock(itemToRemove.productId, originalProd.stock + itemToRemove.quantity);
+    }
+
+    // If it was an IMEI item, restore its status to in_stock
+    if (itemToRemove.imei && onUpdateImeis) {
+      const updatedImeis = imeis.map(item => {
+        if (item.imei === itemToRemove.imei) {
+          return { ...item, status: 'in_stock' as const };
+        }
+        return item;
+      });
+      onUpdateImeis(updatedImeis);
     }
     
     // Re-verify actual cost
@@ -626,30 +660,48 @@ export default function RepairManager({
                             {/* Dropdown scroll list */}
                             <div className="bg-white border border-slate-200 rounded-lg max-h-36 overflow-y-auto divide-y divide-slate-100 bento-shadow p-0.5">
                               {products
-                                .filter(p => !p.hasImei && p.stock > 0 && (
-                                  p.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || 
-                                  p.sku.toLowerCase().includes(partSearchQuery.toLowerCase())
-                                ))
+                                .filter(p => {
+                                  const stock = p.hasImei 
+                                    ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length
+                                    : p.stock;
+                                  return stock > 0 && (
+                                    p.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || 
+                                    p.sku.toLowerCase().includes(partSearchQuery.toLowerCase())
+                                  );
+                                })
                                 .slice(0, 10) 
                                 .map(p => (
                                   <button 
                                     key={p.id} 
                                     type="button" 
                                     onClick={() => {
-                                      handleAddPart(p);
+                                      if (p.hasImei) {
+                                        setSelectingImeiForRepair(p);
+                                      } else {
+                                        handleAddPart(p);
+                                      }
                                       setPartSearchQuery('');
                                     }} 
                                     className="w-full text-left text-xs px-2 py-1.5 hover:bg-slate-50 font-medium text-slate-705 flex justify-between items-center transition cursor-pointer rounded-xs"
                                   >
-                                    <span className="truncate pr-2">{p.name}</span>
-                                    <span className="text-[10px] bg-indigo-50 text-indigo-500 px-1 py-0.5 rounded-sm shrink-0 font-mono">Kho: {p.stock} | +{formatVND(p.price)}</span>
+                                    <span className="truncate pr-2 flex items-center gap-1">
+                                      {p.hasImei && <QrCode className="w-3 h-3 text-indigo-500 shrink-0" />}
+                                      {p.name}
+                                    </span>
+                                    <span className="text-[10px] bg-indigo-50 text-indigo-500 px-1 py-0.5 rounded-sm shrink-0 font-mono">
+                                      Kho: {p.hasImei ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length : p.stock} | +{formatVND(p.price)}
+                                    </span>
                                   </button>
                                 ))
                               }
-                              {products.filter(p => !p.hasImei && p.stock > 0 && (
-                                  p.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || 
-                                  p.sku.toLowerCase().includes(partSearchQuery.toLowerCase())
-                                )).length === 0 && (
+                              {products.filter(p => {
+                                  const stock = p.hasImei 
+                                    ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length
+                                    : p.stock;
+                                  const matchQuery = p.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || 
+                                                     p.sku.toLowerCase().includes(partSearchQuery.toLowerCase());
+                                  return stock > 0 && matchQuery;
+                                }).length === 0 && (
                                 <div className="text-center py-3 text-[10px] text-slate-400 italic">
                                   Không có sẵn linh kiện còn hàng trong kho
                                 </div>
@@ -1031,6 +1083,80 @@ export default function RepairManager({
                 </div>
 
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* IMEI Selector Modal For Repair Replacement */}
+      <AnimatePresence>
+        {selectingImeiForRepair && (
+          <div className="fixed inset-0 z-51 overflow-y-auto flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectingImeiForRepair(null)}
+              className="fixed inset-0 bg-black"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-md z-20 relative"
+            >
+              <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                    <QrCode className="w-5 h-5 text-indigo-650" />
+                    Chọn IMEI/Serial Linh Kiện Thay Thế
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-1 font-semibold">Sản phẩm: {selectingImeiForRepair.name}</p>
+                </div>
+                <button 
+                  onClick={() => setSelectingImeiForRepair(null)}
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                {imeis.filter(i => i.productId === selectingImeiForRepair.id && i.status === 'in_stock').map(i => (
+                  <button
+                    key={i.id}
+                    type="button"
+                    onClick={() => {
+                      handleAddPart(selectingImeiForRepair, i.imei);
+                      setSelectingImeiForRepair(null);
+                    }}
+                    className="w-full flex items-center justify-between p-3 border border-slate-150 hover:border-indigo-500 hover:bg-indigo-50/30 rounded-xl transition cursor-pointer text-left group"
+                  >
+                    <div>
+                      <span className="font-mono text-xs font-bold text-slate-800 group-hover:text-indigo-600">{i.imei}</span>
+                      <span className="ml-2 px-1.5 py-0.5 text-[9px] font-black uppercase bg-emerald-50 text-emerald-650 rounded-sm">Sẵn kho</span>
+                    </div>
+                    <Plus className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 transition" />
+                  </button>
+                ))}
+
+                {imeis.filter(i => i.productId === selectingImeiForRepair.id && i.status === 'in_stock').length === 0 && (
+                  <div className="text-center py-6 text-xs text-slate-400 italic">
+                    Không tìm thấy IMEI/Serial trống nào của mặt hàng này còn trong kho hàng
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
+                <button 
+                  type="button" 
+                  onClick={() => setSelectingImeiForRepair(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition"
+                >
+                  Đóng lại
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

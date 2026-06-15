@@ -881,6 +881,8 @@ export default function App() {
                 users={users}
                 currentUser={currentUser!}
                 products={products}
+                imeis={imeis}
+                onUpdateImeis={saveImeis}
                 onAddRepair={handleAddRepair}
                 onUpdateRepairStatus={handleUpdateRepairStatus}
                 onAddCustomer={handleAddCustomer}
