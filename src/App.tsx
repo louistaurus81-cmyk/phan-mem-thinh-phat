@@ -10,7 +10,10 @@ import {
   User,
   UserRole,
   PrintSettings,
-  ProductIMEI
+  ProductIMEI,
+  Debt,
+  Supplier,
+  computeExpiryDate
 } from './types';
 import { 
   INITIAL_PRODUCTS, 
@@ -24,6 +27,8 @@ import SalesManager from './components/SalesManager';
 import RepairManager from './components/RepairManager';
 import WarrantyManager from './components/WarrantyManager';
 import CustomerManager from './components/CustomerManager';
+import DebtManager from './components/DebtManager';
+import SupplierManager from './components/SupplierManager';
 import PCBuilder from './components/PCBuilder';
 import Login from './components/Login';
 import AccountManager from './components/AccountManager';
@@ -40,7 +45,9 @@ import {
   Menu,
   X,
   Cpu,
-  Printer
+  Printer,
+  ReceiptText,
+  Factory
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -79,6 +86,8 @@ export default function App() {
   const [repairs, setRepairs] = useState<RepairTicket[]>([]);
   const [warranties, setWarranties] = useState<WarrantyCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [debts, setDebts] = useState<Debt[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -93,7 +102,7 @@ export default function App() {
       const res = await fetch('/api/db');
       const payload = await res.json();
       if (payload.success && payload.db) {
-        const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis } = payload.db;
+        const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers } = payload.db;
         if (products && products.length > 0) setProducts(products);
         if (customers && customers.length > 0) setCustomers(customers);
         if (invoices && invoices.length > 0) setInvoices(invoices);
@@ -102,6 +111,8 @@ export default function App() {
         if (categories && categories.length > 0) setCategories(categories);
         if (users && users.length > 0) setUsers(users);
         if (imeis && imeis.length > 0) setImeis(imeis);
+        if (debts && debts.length > 0) setDebts(debts);
+        if (suppliers && suppliers.length > 0) setSuppliers(suppliers);
         if (settings && settings.length > 0) {
           setPrintSettings(settings[0]);
         }
@@ -118,6 +129,8 @@ export default function App() {
       const storedUsers = localStorage.getItem('thinhphat_v2_users');
       const storedSettings = localStorage.getItem('thinhphat_v2_settings');
       const storedImeis = localStorage.getItem('thinhphat_v2_imeis');
+      const storedDebts = localStorage.getItem('thinhphat_v2_debts');
+      const storedSuppliers = localStorage.getItem('thinhphat_v2_suppliers');
 
       if (storedUsers) setUsers(JSON.parse(storedUsers));
       if (storedProducts) setProducts(JSON.parse(storedProducts));
@@ -127,6 +140,8 @@ export default function App() {
       if (storedWarranties) setWarranties(JSON.parse(storedWarranties));
       if (storedCategories) setCategories(JSON.parse(storedCategories));
       if (storedImeis) setImeis(JSON.parse(storedImeis));
+      if (storedDebts) setDebts(JSON.parse(storedDebts));
+      if (storedSuppliers) setSuppliers(JSON.parse(storedSuppliers));
       if (storedSettings) {
         try {
           setPrintSettings(JSON.parse(storedSettings));
@@ -224,6 +239,18 @@ export default function App() {
     syncWithServer('users', newUsers);
   };
 
+  const saveDebts = (newDebts: Debt[]) => {
+    setDebts(newDebts);
+    localStorage.setItem('thinhphat_v2_debts', JSON.stringify(newDebts));
+    syncWithServer('debts', newDebts);
+  };
+
+  const saveSuppliers = (newSuppliers: Supplier[]) => {
+    setSuppliers(newSuppliers);
+    localStorage.setItem('thinhphat_v2_suppliers', JSON.stringify(newSuppliers));
+    syncWithServer('suppliers', newSuppliers);
+  };
+
   const handleAddUser = (u: Omit<User, 'id' | 'createdAt'>) => {
     const payload: User = {
       ...u,
@@ -306,6 +333,21 @@ export default function App() {
   const handleAddInvoice = (newInvoice: SalesInvoice) => {
     saveInvoices([...invoices, newInvoice]);
 
+    // Track debt if debtAmount > 0
+    if (newInvoice.debtAmount && newInvoice.debtAmount > 0) {
+      const newDebt: Debt = {
+        id: `debt_${Date.now()}`,
+        customerId: newInvoice.customerId,
+        customerName: newInvoice.customerName,
+        amount: newInvoice.totalAmount,
+        remainingAmount: newInvoice.debtAmount,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        status: newInvoice.debtAmount === newInvoice.totalAmount ? 'pending' : 'partial',
+        createdAt: newInvoice.createdAt
+      };
+      saveDebts([...debts, newDebt]);
+    }
+
     // Deduct stock for products sold & mark IMEIs as sold
     let hasStockUpdate = false;
     let hasImeiUpdate = false;
@@ -346,8 +388,7 @@ export default function App() {
     if (newInvoice.invoiceNumber.startsWith('PC-') && newInvoice.items.length > 0) {
         const maxWarr = newInvoice.items.reduce((max, item) => Math.max(max, item.warrantyMonths || 0), 12);
         const purchaseDate = newInvoice.createdAt.slice(0, 10);
-        const expiry = new Date(purchaseDate);
-        expiry.setMonth(expiry.getMonth() + maxWarr);
+        const expiryDateStr = computeExpiryDate(purchaseDate, maxWarr);
         
         const card: WarrantyCard = {
           id: `warr_${Date.now()}_pc`,
@@ -357,7 +398,7 @@ export default function App() {
           customerPhone: newInvoice.customerPhone,
           purchaseDate,
           warrantyMonths: maxWarr,
-          expiryDate: expiry.toISOString().slice(0, 10),
+          expiryDate: expiryDateStr,
           status: 'active',
           notes: `Bảo hành theo linh kiện chi tiết trong Hoá đơn ${newInvoice.invoiceNumber}`,
           linkedInvoiceId: newInvoice.id
@@ -370,8 +411,7 @@ export default function App() {
         
         if (warrMonths > 0) {
           const purchaseDate = newInvoice.createdAt.slice(0, 10);
-          const expiry = new Date(purchaseDate);
-          expiry.setMonth(expiry.getMonth() + warrMonths);
+          const expiryDateStr = computeExpiryDate(purchaseDate, warrMonths);
           
           // Formulate a realistic-looking serial/IMEI for electronics warranty
           const randomSerialStr = `IMEI-${Math.floor(10000000000000 + Math.random() * 90000000000000)}`;
@@ -384,7 +424,7 @@ export default function App() {
             customerPhone: newInvoice.customerPhone,
             purchaseDate,
             warrantyMonths: warrMonths,
-            expiryDate: expiry.toISOString().slice(0, 10),
+            expiryDate: expiryDateStr,
             status: 'active',
             notes: `Từ Hoá đơn số ${newInvoice.invoiceNumber}`,
             linkedInvoiceId: newInvoice.id
@@ -407,8 +447,19 @@ export default function App() {
   const handleUpdateRepairStatus = (
     id: string, 
     status: RepairStatus, 
-    finalDetails?: { solution?: string; actualCost?: number; warrantyUntil?: string; deliveredAt?: string; note?: string }
+    finalDetails?: { 
+      solution?: string; 
+      actualCost?: number; 
+      warrantyUntil?: string; 
+      deliveredAt?: string; 
+      note?: string;
+      usedParts?: { productId: string; name: string; quantity: number; price: number }[];
+      debtAmount?: number;
+      debtDueDate?: string;
+    }
   ) => {
+    let debtToSave: Debt | null = null;
+
     const updated = repairs.map(rep => {
       if (rep.id !== id) return rep;
       
@@ -427,10 +478,24 @@ export default function App() {
         if (finalDetails.warrantyUntil !== undefined) payload.warrantyUntil = finalDetails.warrantyUntil;
         if (finalDetails.deliveredAt !== undefined) payload.deliveredAt = finalDetails.deliveredAt;
         if (finalDetails.note !== undefined) payload.note = finalDetails.note;
+        if (finalDetails.usedParts !== undefined) payload.usedParts = finalDetails.usedParts;
       }
 
       if (status === 'delivered' && !payload.deliveredAt) {
         payload.deliveredAt = new Date().toISOString().slice(0, 10);
+      }
+
+      if (status === 'delivered' && finalDetails?.debtAmount && finalDetails.debtAmount > 0) {
+        debtToSave = {
+          id: `debt_${Date.now()}`,
+          customerId: rep.customerId,
+          customerName: rep.customerName,
+          amount: finalDetails.actualCost || rep.estimatedCost,
+          remainingAmount: finalDetails.debtAmount,
+          dueDate: finalDetails.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          status: finalDetails.debtAmount === (finalDetails.actualCost || rep.estimatedCost) ? 'pending' : 'partial',
+          createdAt: new Date().toISOString()
+        };
       }
 
       // If transition to 'delivered' occurs, also register a service repair warranty card
@@ -445,7 +510,8 @@ export default function App() {
           warrantyMonths: 3, // standard 3-month post-repair warranty
           expiryDate: payload.warrantyUntil,
           status: 'active',
-          notes: `Bảo hành dịch vụ sửa chữa số ${rep.ticketNumber}. Giải pháp: ${payload.solution || 'Thay thế linh kiện'}`
+          notes: `Bảo hành dịch vụ sửa chữa số ${rep.ticketNumber}. Giải pháp: ${payload.solution || 'Thay thế linh kiện'}`,
+          linkedRepairId: rep.id
         };
         
         // Also append this repair service custom warranty card to the master registry!
@@ -458,6 +524,12 @@ export default function App() {
     });
 
     saveRepairs(updated);
+
+    if (debtToSave) {
+      setTimeout(() => {
+        saveDebts([...debts, debtToSave!]);
+      }, 50);
+    }
   };
 
   const handleAddWarranty = (card: WarrantyCard) => {
@@ -542,6 +614,8 @@ export default function App() {
                     { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
                     { id: 'warranties', label: 'Tra Cứu Bảo Hành', icon: ShieldCheck },
                     { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
+                    { id: 'debts', label: 'Công Nợ', icon: ReceiptText },
+                    { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
                     { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
                     { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
                   ].filter(tab => !['accounts', 'printSettings'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
@@ -625,6 +699,8 @@ export default function App() {
               { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
               { id: 'warranties', label: 'Tra Cứu Bảo Hành', icon: ShieldCheck },
               { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
+              { id: 'debts', label: 'Công Nợ', icon: ReceiptText },
+              { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
               { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
               { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
             ].filter(tab => !['accounts', 'printSettings'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
@@ -691,6 +767,8 @@ export default function App() {
               {activeTab === 'repairs' && 'Tiếp Nhận & Sửa Chữa Thiết Bị'}
               {activeTab === 'warranties' && 'Bảo Hành Điện Tử'}
               {activeTab === 'customers' && 'Hồ Sơ Khách Hàng (CRM)'}
+              {activeTab === 'debts' && 'Quản Lý Công Nợ'}
+              {activeTab === 'suppliers' && 'Quản Lý Nhà Cung Cấp'}
               {activeTab === 'printSettings' && 'Cấu Hình Bản In & QR Thanh Toán'}
               {activeTab === 'accounts' && 'Quản Lý Tài Khoản & Nhân Viên'}
             </h1>
@@ -701,6 +779,8 @@ export default function App() {
               {activeTab === 'repairs' && 'Ghi chép tiếp quản máy hỏng kỹ thuật, tra cứu tự động nếu có bảo hành, bàn giao máy lưu kho.'}
               {activeTab === 'warranties' && 'Cổng tra cứu bảo hành minh bạch bằng số SKU/IMEI và lưu trữ thẻ quyền lợi bảo vệ khách mua hàng.'}
               {activeTab === 'customers' && 'Kiểm soát thông tin liên hệ, tra cứu lịch sử mua hàng phối hợp tất toán sửa chữa khách hàng cũ.'}
+              {activeTab === 'debts' && 'Theo dõi danh sách công nợ khách hàng, kỳ hạn thanh toán và trạng thái tất toán các hóa đơn còn thiếu.'}
+              {activeTab === 'suppliers' && 'Quản lý thông tin nhà cung cấp sản phẩm, tra cứu nhanh nguồn gốc nhập hàng để bảo hành dễ dàng.'}
               {activeTab === 'printSettings' && 'Điều chỉnh khuôn khổ in ấn A4/K80/K57, màu thương hiệu nổi bật, khẩu hiệu cửa hàng và tích hợp VietQR.'}
               {activeTab === 'accounts' && 'Kiểm soát danh sách nhân sự bán hàng, kỹ thuật viên hoạt động tại cửa hàng, phân bổ quyền hạn.'}
             </p>
@@ -765,6 +845,7 @@ export default function App() {
                 users={users}
                 currentUser={currentUser!}
                 printSettings={printSettings}
+                suppliers={suppliers}
                 onAddProduct={handleAddProduct}
                 onUpdateProduct={handleUpdateProduct}
                 onDeleteProduct={handleDeleteProduct}
@@ -799,9 +880,11 @@ export default function App() {
                 warranties={warranties}
                 users={users}
                 currentUser={currentUser!}
+                products={products}
                 onAddRepair={handleAddRepair}
                 onUpdateRepairStatus={handleUpdateRepairStatus}
                 onAddCustomer={handleAddCustomer}
+                onUpdateProductStock={handleUpdateProductStock}
               />
             )}
 
@@ -823,6 +906,24 @@ export default function App() {
                 repairs={repairs}
                 onAddCustomer={handleAddCustomer}
                 onEditCustomer={handleEditCustomer}
+              />
+            )}
+
+            {activeTab === 'debts' && (
+              <DebtManager 
+                debts={debts}
+                onUpdateDebts={saveDebts}
+                customers={customers}
+                invoices={invoices}
+              />
+            )}
+
+            {activeTab === 'suppliers' && (
+              <SupplierManager 
+                suppliers={suppliers}
+                onUpdateSuppliers={saveSuppliers}
+                products={products}
+                onUpdateProduct={handleUpdateProduct}
               />
             )}
 

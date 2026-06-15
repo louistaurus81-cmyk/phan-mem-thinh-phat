@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI } from '../types';
+import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText } from '../types';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Plus, 
@@ -29,6 +29,7 @@ interface SalesManagerProps {
   users: User[];
   currentUser: User;
   printSettings?: PrintSettings;
+  suppliers: Supplier[];
   onAddProduct: (product: Omit<Product, 'id'>) => void;
   onUpdateProduct: (product: Product) => void;
   onDeleteProduct: (id: string) => void;
@@ -50,6 +51,7 @@ export default function SalesManager({
   users,
   currentUser,
   printSettings,
+  suppliers,
   onAddProduct,
   onUpdateProduct,
   onDeleteProduct,
@@ -93,6 +95,15 @@ export default function SalesManager({
   const [processedBy, setProcessedBy] = useState<string>(currentUser?.fullName || '');
   const [discountPercent, setDiscountPercent] = useState<number>(0);
 
+  // Debt integration in checkout
+  const [isDebt, setIsDebt] = useState(false);
+  const [debtAmount, setDebtAmount] = useState(0);
+  const [debtDueDate, setDebtDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  });
+
   React.useEffect(() => {
     if (currentUser) {
       setProcessedBy(currentUser.fullName);
@@ -110,7 +121,9 @@ export default function SalesManager({
     warrantyMonths: 12,
     category: '',
     location: '',
-    minStock: 5
+    minStock: 5,
+    hasImei: false,
+    supplierId: ''
   });
 
   // Modal for editing an existing product
@@ -310,6 +323,14 @@ export default function SalesManager({
     return Math.max(0, cartSubtotal - discAmount);
   }, [cartSubtotal, discAmount]);
 
+  useEffect(() => {
+    if (isDebt) {
+      setDebtAmount(cartGrandTotal);
+    } else {
+      setDebtAmount(0);
+    }
+  }, [isDebt, cartGrandTotal]);
+
   // Handling Checkout Process
   const handleCheckout = (e: React.FormEvent) => {
     e.preventDefault();
@@ -365,6 +386,11 @@ export default function SalesManager({
       }
     }
 
+    if (isDebt && (debtAmount <= 0 || debtAmount > cartGrandTotal)) {
+      alert('Vui lòng nhập số tiền nợ hợp lệ (lớn hơn 0 và nhỏ hơn hoặc bằng tổng tiền thanh toán)');
+      return;
+    }
+
     // Formulate new SalesInvoice
     const newInvoiceNumber = `HD-${10001 + invoices.length}`;
     const invoicePayload: SalesInvoice = {
@@ -377,8 +403,9 @@ export default function SalesManager({
       totalAmount: cartGrandTotal,
       paymentMethod,
       createdAt: new Date().toISOString(),
-      note: (invoiceNote.trim() || '') + (discountPercent > 0 ? ` [Chiết khấu hoá đơn giảm ${discountPercent}%]` : ''),
-      processedBy: processedBy || currentUser.fullName
+      note: (invoiceNote.trim() || '') + (discountPercent > 0 ? ` [Chiết khấu hoá đơn giảm ${discountPercent}%]` : '') + (isDebt ? ` [Ghi nợ: ${formatVND(debtAmount)}, Hạn nợ: ${debtDueDate}]` : ''),
+      processedBy: processedBy || currentUser.fullName,
+      debtAmount: isDebt ? debtAmount : undefined
     };
 
     // Commit invoice and deduct stock
@@ -420,6 +447,8 @@ export default function SalesManager({
     setInvoiceNote('');
     setDiscountPercent(0);
     setCustomerMode('select');
+    setIsDebt(false);
+    setDebtAmount(0);
     
     // Show success notice
     alert(`Tạo thành công hóa đơn ${newInvoiceNumber}! Sổ bảo hành cũng đã được tự động kích hoạt.`);
@@ -445,7 +474,9 @@ export default function SalesManager({
       stock: Number(newProduct.stock),
       warrantyMonths: Number(newProduct.warrantyMonths),
       location: newProduct.location || undefined,
-      minStock: Number(newProduct.minStock) || 5
+      minStock: Number(newProduct.minStock) || 5,
+      hasImei: newProduct.hasImei,
+      supplierId: newProduct.supplierId || undefined
     });
 
     setNewProduct({
@@ -457,7 +488,9 @@ export default function SalesManager({
       warrantyMonths: 12,
       category: '',
       location: '',
-      minStock: 5
+      minStock: 5,
+      hasImei: false,
+      supplierId: ''
     });
     setShowAddProductModal(false);
   };
@@ -643,7 +676,7 @@ export default function SalesManager({
                       </span>
                     </div>
                     <h4 className="font-semibold text-slate-800 text-sm mt-2 line-clamp-1">{prod.name}</h4>
-                    <p className="text-xs text-slate-500 mt-1">Bảo hành: <span className="font-semibold text-indigo-600">{prod.warrantyMonths} tháng</span></p>
+                    <p className="text-xs text-slate-500 mt-1">Bảo hành: <span className="font-semibold text-indigo-600">{formatWarrantyText(prod.warrantyMonths)}</span></p>
                     {prod.location && (
                       <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                         <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
@@ -911,6 +944,49 @@ export default function SalesManager({
                     </div>
                   </div>
 
+                  {/* Debt control check box and details */}
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={isDebt} 
+                        onChange={e => setIsDebt(e.target.checked)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span className="text-xs font-bold text-slate-700">Ghi nhận công nợ (Khách nợ/mua chịu)</span>
+                    </label>
+
+                    {isDebt && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }} 
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="space-y-2 pt-2 border-t border-slate-200 overflow-hidden"
+                      >
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Số tiền khách nợ (VND)</label>
+                          <input 
+                            type="number" 
+                            max={cartGrandTotal}
+                            min={0}
+                            value={debtAmount} 
+                            onChange={e => setDebtAmount(Math.min(cartGrandTotal, Number(e.target.value)))}
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-hidden text-indigo-600 focus:border-indigo-500"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-0.5">Tổng giá trị: {formatVND(cartGrandTotal)}</p>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Kỳ hạn phải trả</label>
+                          <input 
+                            type="date" 
+                            value={debtDueDate}
+                            onChange={e => setDebtDueDate(e.target.value)}
+                            className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 focus:outline-hidden"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Ghi chú đơn hàng</label>
                     <textarea 
@@ -1109,6 +1185,11 @@ export default function SalesManager({
                             Quản lý IMEI
                           </div>
                         )}
+                        {suppliers.find(s => s.id === prod.supplierId) && (
+                          <div className="text-[10px] text-amber-700 bg-amber-50 inline-block px-1.5 py-0.5 rounded-sm mt-1 font-semibold uppercase border border-amber-100 ml-1">
+                            NPP: {suppliers.find(s => s.id === prod.supplierId)?.name}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5">
                         <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full font-medium">
@@ -1127,7 +1208,7 @@ export default function SalesManager({
                       </td>
                       <td className="py-3.5 font-semibold text-rose-500">{formatVND(prod.cost)}</td>
                       <td className="py-3.5 font-bold text-emerald-600">{formatVND(prod.price)}</td>
-                      <td className="py-3.5 text-xs text-slate-500">{prod.warrantyMonths} tháng</td>
+                      <td className="py-3.5 text-xs text-slate-500">{formatWarrantyText(prod.warrantyMonths)}</td>
                       <td className="py-3.5 text-xs font-semibold text-slate-600">{prod.minStock ?? 5} chiếc</td>
                       <td className="py-3.5">
                         <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
@@ -1530,16 +1611,39 @@ export default function SalesManager({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Hạn Bảo Hành (Tháng)</label>
-                    <input 
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Thời hạn bảo hành</label>
+                    <select 
                       id="input-product-warranty"
-                      type="number"
                       required
                       value={newProduct.warrantyMonths}
                       onChange={e => setNewProduct({...newProduct, warrantyMonths: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden"
-                    />
+                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden cursor-pointer"
+                    >
+                      <option value="0.1">3 ngày</option>
+                      <option value="0.2">7 ngày</option>
+                      <option value="0.3">Bao test</option>
+                      <option value="1">1 Tháng bảo hành</option>
+                      <option value="3">3 Tháng bảo hành</option>
+                      <option value="6">6 Tháng bảo hành</option>
+                      <option value="12">12 Tháng bảo hành (Mặc định)</option>
+                      <option value="24">24 Tháng bảo hành</option>
+                      <option value="36">36 Tháng bảo hành</option>
+                    </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nhà Cung Cấp (Liên kết nguồn hàng chính hãng)</label>
+                  <select 
+                    value={newProduct.supplierId || ''}
+                    onChange={e => setNewProduct({...newProduct, supplierId: e.target.value})}
+                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="">-- Chọn nhà cung cấp --</option>
+                    {suppliers.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 flex gap-3 justify-end">
@@ -1720,16 +1824,39 @@ export default function SalesManager({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Hạn Bảo Hành (Tháng)</label>
-                    <input 
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Thời hạn bảo hành</label>
+                    <select 
                       id="edit-product-warranty"
-                      type="number"
                       required
                       value={editingProduct.warrantyMonths}
                       onChange={e => setEditingProduct({...editingProduct, warrantyMonths: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden"
-                    />
+                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden cursor-pointer"
+                    >
+                      <option value="0.1">3 ngày</option>
+                      <option value="0.2">7 ngày</option>
+                      <option value="0.3">Bao test</option>
+                      <option value="1">1 Tháng bảo hành</option>
+                      <option value="3">3 Tháng bảo hành</option>
+                      <option value="6">6 Tháng bảo hành</option>
+                      <option value="12">12 Tháng bảo hành (Mặc định)</option>
+                      <option value="24">24 Tháng bảo hành</option>
+                      <option value="36">36 Tháng bảo hành</option>
+                    </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nhà Cung Cấp (Liên kết nguồn hàng chính hãng)</label>
+                  <select 
+                    value={editingProduct.supplierId || ''}
+                    onChange={e => setEditingProduct({...editingProduct, supplierId: e.target.value})}
+                    className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="">-- Chọn nhà cung cấp --</option>
+                    {suppliers.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100 flex gap-3 justify-end">

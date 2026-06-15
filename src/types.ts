@@ -7,6 +7,15 @@ export interface ProductIMEI {
   invoiceId?: string; // Links to the invoice when sold
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -19,6 +28,7 @@ export interface Product {
   location?: string;
   minStock?: number;
   hasImei?: boolean; // Indicates if this product tracks specific IMEIs
+  supplierId?: string; // ADDED: Links to supplier
 }
 
 export interface Category {
@@ -47,6 +57,19 @@ export interface SalesInvoice {
   createdAt: string;
   note?: string;
   processedBy?: string;
+  debtAmount?: number; // ADDED: Amount still owed
+}
+
+export interface Debt {
+  id: string;
+  customerId: string;
+  customerName: string;
+  amount: number;
+  remainingAmount: number;
+  dueDate: string;
+  status: 'pending' | 'paid' | 'partial';
+  createdAt: string;
+  note?: string;
 }
 
 export type UserRole = 'admin' | 'sales' | 'technician';
@@ -84,6 +107,8 @@ export interface RepairTicket {
   deliveredAt?: string;
   note?: string;
   processedBy?: string;
+  linkedInvoiceId?: string; // ADDED: Link to original invoice
+  usedParts?: { productId: string, name: string, quantity: number, price: number }[]; // ADDED: Parts used in repair
 }
 
 export interface WarrantyCard {
@@ -99,6 +124,7 @@ export interface WarrantyCard {
   notes?: string;
   processedBy?: string;
   linkedInvoiceId?: string;
+  linkedRepairId?: string;
 }
 
 export interface Customer {
@@ -129,4 +155,31 @@ export interface PrintSettings {
   bankAccountName: string;
   qrCompact: boolean;
 }
+
+export function formatWarrantyText(months: number): string {
+  if (months === 0.1) return '3 Ngày';
+  if (months === 0.2) return '7 Ngày';
+  if (months === 0.3 || months === 0.35 || months === 0.25) return 'Bao test';
+  if (months === 0) return 'Không bảo hành';
+  return `${months} Tháng`;
+}
+
+export function computeExpiryDate(startDateStr: string, months: number): string {
+  const d = new Date(startDateStr);
+  if (isNaN(d.getTime())) {
+    return startDateStr;
+  }
+  if (months === 0.1) {
+    d.setDate(d.getDate() + 3);
+  } else if (months === 0.2) {
+    d.setDate(d.getDate() + 7);
+  } else if (months === 0.3 || months === 0.35 || months === 0.25) {
+    // "Bao test": test and buy on-the-spot, no warranty period
+    // Do not add any days; expiry date is the purchase date itself
+  } else {
+    d.setMonth(d.getMonth() + months);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
 

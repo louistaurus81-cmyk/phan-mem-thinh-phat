@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings, ProductIMEI } from '../types';
+import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings, ProductIMEI, formatWarrantyText } from '../types';
 import { 
   Cpu, 
   Trash2, 
@@ -994,7 +994,7 @@ export default function PCBuilder({
                                      <td className="border border-slate-300 py-1.5 text-center font-bold">{item.quantity}</td>
                                      <td className="border border-slate-300 py-1.5 text-right px-2 font-semibold text-slate-700">{formatVND(item.price)}</td>
                                      <td className="border border-slate-300 py-1.5 text-right px-2 font-bold">{formatVND(item.price * item.quantity)}</td>
-                                     <td className="border border-slate-300 py-1.5 text-center text-slate-800">{item.warrantyMonths > 0 ? `${String(item.warrantyMonths).padStart(2, '0')}TH` : '03TH'}</td>
+                                     <td className="border border-slate-300 py-1.5 text-center text-slate-800">{item.warrantyMonths > 0 ? formatWarrantyText(item.warrantyMonths) : '03TH'}</td>
                                      <td className="border border-slate-300 py-1.5 text-center font-extrabold text-blue-700">SẴN HÀNG</td>
                                    </tr>
                                  );

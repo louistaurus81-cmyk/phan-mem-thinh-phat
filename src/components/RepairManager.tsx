@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { RepairTicket, Customer, WarrantyCard, RepairStatus, User } from '../types';
+import { RepairTicket, Customer, WarrantyCard, RepairStatus, User, Product, computeExpiryDate } from '../types';
 import { 
   Search, 
   Wrench, 
   Plus, 
+  Minus,
+  Trash2,
   X, 
   Clock, 
   CheckCircle, 
@@ -22,9 +24,11 @@ interface RepairManagerProps {
   warranties: WarrantyCard[];
   users: User[];
   currentUser: User;
+  products: Product[];
   onAddRepair: (ticket: RepairTicket) => void;
-  onUpdateRepairStatus: (id: string, status: RepairStatus, finalDetails?: { solution?: string; actualCost?: number; warrantyUntil?: string; note?: string; deliveredAt?: string }) => void;
+  onUpdateRepairStatus: (id: string, status: RepairStatus, finalDetails?: { solution?: string; actualCost?: number; warrantyUntil?: string; note?: string; deliveredAt?: string; usedParts?: { productId: string; name: string; price: number; quantity: number }[]; debtAmount?: number; debtDueDate?: string }) => void;
   onAddCustomer: (customer: Customer) => void;
+  onUpdateProductStock: (id: string, newStock: number) => void;
 }
 
 export default function RepairManager({
@@ -33,9 +37,11 @@ export default function RepairManager({
   warranties,
   users,
   currentUser,
+  products,
   onAddRepair,
   onUpdateRepairStatus,
-  onAddCustomer
+  onAddCustomer,
+  onUpdateProductStock
 }: RepairManagerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -74,18 +80,74 @@ export default function RepairManager({
   // Selected ticket for side detail drawer
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
 
-  // States for updating repair ticket details on statusChange
-  const [showStatusBar, setShowStatusBar] = useState(false);
-  const [actualCost, setActualCost] = useState(0);
-  const [solution, setSolution] = useState('');
-  const [repairWarrantyMonths, setRepairWarrantyMonths] = useState(3); // default 3 months warranty for repair
-  const [deliveredAtInput, setDeliveredAtInput] = useState(new Date().toISOString().slice(0, 10));
-  const [updateNote, setUpdateNote] = useState('');
-
   // Find active ticket object
   const activeTicket = useMemo(() => {
     return repairs.find(r => r.id === activeTicketId) || null;
   }, [repairs, activeTicketId]);
+
+  // States for updating repair ticket details on statusChange
+  const [showStatusBar, setShowStatusBar] = useState(false);
+  const [actualCost, setActualCost] = useState(0);
+  const [solution, setSolution] = useState('');
+  const [usedParts, setUsedParts] = useState<{ productId: string; name: string; price: number; quantity: number }[]>([]);
+  const [repairWarrantyMonths, setRepairWarrantyMonths] = useState(3); // default 3 months warranty for repair
+  const [deliveredAtInput, setDeliveredAtInput] = useState(new Date().toISOString().slice(0, 10));
+  const [updateNote, setUpdateNote] = useState('');
+
+  // Repair debt states
+  const [isRepairDebt, setIsRepairDebt] = useState(false);
+  const [repairDebtAmount, setRepairDebtAmount] = useState(0);
+  const [repairDebtDueDate, setRepairDebtDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  });
+
+  // Watch for isRepairDebt to initialize the limit amount dynamically
+  React.useEffect(() => {
+    if (isRepairDebt && activeTicket) {
+      const parentCost = activeTicket.actualCost || activeTicket.estimatedCost || 0;
+      setRepairDebtAmount(parentCost);
+    } else {
+      setRepairDebtAmount(0);
+    }
+  }, [isRepairDebt, activeTicket]);
+
+  // Search logic and parts selectors
+  const [partSearchQuery, setPartSearchQuery] = useState('');
+
+  // Handle addition of replacement component & auto calculate cost
+  const handleAddPart = (p: Product) => {
+    const existingIndex = usedParts.findIndex(item => item.productId === p.id);
+    if (existingIndex > -1) {
+      const updated = [...usedParts];
+      updated[existingIndex].quantity += 1;
+      setUsedParts(updated);
+    } else {
+      setUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1 }]);
+    }
+    // Increment the actual repair bill by the product price automatically!
+    setActualCost(prev => prev + p.price);
+    // Deduct stock for inventory integrity
+    onUpdateProductStock(p.id, p.stock - 1);
+  };
+
+  // Handle deletion of replacement component & restore stock
+  const handleRemovePart = (index: number) => {
+    const itemToRemove = usedParts[index];
+    const originalProd = products.find(p => p.id === itemToRemove.productId);
+    
+    // Put stock back
+    if (originalProd) {
+      onUpdateProductStock(itemToRemove.productId, originalProd.stock + itemToRemove.quantity);
+    }
+    
+    // Re-verify actual cost
+    setActualCost(prev => Math.max(0, prev - (itemToRemove.price * itemToRemove.quantity)));
+    
+    // Remove from selection array safely
+    setUsedParts(prev => prev.filter((_, i) => i !== index));
+  };
 
   // Serial lookup to check if product is currently under warranty
   const serialWarrantyStatus = useMemo(() => {
@@ -204,24 +266,35 @@ export default function RepairManager({
       onUpdateRepairStatus(activeTicket.id, 'completed', {
         solution: solution.trim() || 'Sửa chữa phần cứng hệ thống',
         actualCost: Number(actualCost) || activeTicket.estimatedCost,
-        note: updateNote.trim() || undefined
+        note: updateNote.trim() || undefined,
+        usedParts: usedParts
       });
       setShowStatusBar(false);
       setSolution('');
       setActualCost(0);
+      setUsedParts([]);
       setUpdateNote('');
     } else if (status === 'delivered') {
+      const parentMaxCost = activeTicket.actualCost || activeTicket.estimatedCost || 0;
+      if (isRepairDebt && (repairDebtAmount <= 0 || repairDebtAmount > parentMaxCost)) {
+        alert('Vui lòng nhập số tiền ghi nợ hợp lệ (lớn hơn 0 và nhỏ hơn hoặc bằng tổng chi phí sửa chữa)');
+        return;
+      }
+      
       // Hands over to client, calculate service warranty
-      const expiryDate = new Date(deliveredAtInput || new Date());
-      expiryDate.setMonth(expiryDate.getMonth() + repairWarrantyMonths);
+      const expiryDateStr = computeExpiryDate(deliveredAtInput || new Date().toISOString().slice(0, 10), repairWarrantyMonths);
       
       onUpdateRepairStatus(activeTicket.id, 'delivered', {
         deliveredAt: deliveredAtInput,
-        warrantyUntil: expiryDate.toISOString().slice(0, 10),
-        note: updateNote.trim() ? `${activeTicket.note || ''}\nBàn giao: ${updateNote.trim()}` : activeTicket.note
+        warrantyUntil: expiryDateStr,
+        note: (updateNote.trim() ? `${activeTicket.note || ''}\nBàn giao: ${updateNote.trim()}` : activeTicket.note) + (isRepairDebt ? ` [Ghi nợ sửa chữa: ${formatVND(repairDebtAmount)}, Hạn: ${repairDebtDueDate}]` : ''),
+        debtAmount: isRepairDebt ? repairDebtAmount : undefined,
+        debtDueDate: isRepairDebt ? repairDebtDueDate : undefined
       });
       setShowStatusBar(false);
       setUpdateNote('');
+      setIsRepairDebt(false);
+      setRepairDebtAmount(0);
     } else {
       onUpdateRepairStatus(activeTicket.id, status);
     }
@@ -525,6 +598,89 @@ export default function RepairManager({
                               className="w-full text-xs bg-white border border-slate-200 p-2 rounded-md focus:outline-hidden"
                             />
                           </div>
+                          {/* Part selection UI */}
+                          <div className="space-y-2">
+                            <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Linh kiện thay thế từ kho</label>
+                            
+                            {/* Search bar inside part selector */}
+                            <div className="relative">
+                              <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                              <input 
+                                type="text"
+                                placeholder="Tìm theo tên hoặc SKU..."
+                                value={partSearchQuery}
+                                onChange={e => setPartSearchQuery(e.target.value)}
+                                className="w-full text-xs pl-8 pr-7 py-2 bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:border-indigo-505"
+                              />
+                              {partSearchQuery && (
+                                <button 
+                                  type="button"
+                                  onClick={() => setPartSearchQuery('')}
+                                  className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 cursor-pointer text-xs"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Dropdown scroll list */}
+                            <div className="bg-white border border-slate-200 rounded-lg max-h-36 overflow-y-auto divide-y divide-slate-100 bento-shadow p-0.5">
+                              {products
+                                .filter(p => !p.hasImei && p.stock > 0 && (
+                                  p.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || 
+                                  p.sku.toLowerCase().includes(partSearchQuery.toLowerCase())
+                                ))
+                                .slice(0, 10) 
+                                .map(p => (
+                                  <button 
+                                    key={p.id} 
+                                    type="button" 
+                                    onClick={() => {
+                                      handleAddPart(p);
+                                      setPartSearchQuery('');
+                                    }} 
+                                    className="w-full text-left text-xs px-2 py-1.5 hover:bg-slate-50 font-medium text-slate-705 flex justify-between items-center transition cursor-pointer rounded-xs"
+                                  >
+                                    <span className="truncate pr-2">{p.name}</span>
+                                    <span className="text-[10px] bg-indigo-50 text-indigo-500 px-1 py-0.5 rounded-sm shrink-0 font-mono">Kho: {p.stock} | +{formatVND(p.price)}</span>
+                                  </button>
+                                ))
+                              }
+                              {products.filter(p => !p.hasImei && p.stock > 0 && (
+                                  p.name.toLowerCase().includes(partSearchQuery.toLowerCase()) || 
+                                  p.sku.toLowerCase().includes(partSearchQuery.toLowerCase())
+                                )).length === 0 && (
+                                <div className="text-center py-3 text-[10px] text-slate-400 italic">
+                                  Không có sẵn linh kiện còn hàng trong kho
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Selected parts with remove buttons */}
+                            {usedParts.length > 0 && (
+                              <div className="bg-slate-100/80 rounded-lg p-2.5 border border-slate-200/50 space-y-1">
+                                <p className="text-[10px] uppercase font-bold text-slate-505">Đã chọn ({usedParts.length}):</p>
+                                <div className="divide-y divide-slate-200/50 max-h-40 overflow-y-auto">
+                                  {usedParts.map((part, idx) => (
+                                    <div key={idx} className="flex justify-between items-center py-1.5 text-[11px] font-semibold text-slate-800">
+                                      <div className="truncate pr-1">
+                                        <div className="truncate">{part.name}</div>
+                                        <div className="text-[9px] text-indigo-600 font-mono font-bold">SL: {part.quantity} × {formatVND(part.price)}</div>
+                                      </div>
+                                      <button 
+                                        type="button" 
+                                        onClick={() => handleRemovePart(idx)}
+                                        className="p-1 text-rose-500 hover:bg-rose-50 rounded-sm transition shrink-0 cursor-pointer"
+                                        title="Xóa"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </>
                       )}
 
@@ -549,12 +705,58 @@ export default function RepairManager({
                                 onChange={e => setRepairWarrantyMonths(Number(e.target.value))}
                                 className="w-full text-xs bg-white border border-slate-200 p-2 rounded-md focus:outline-hidden cursor-pointer"
                               >
+                                <option value={0.1}>3 ngày</option>
+                                <option value={0.2}>7 ngày</option>
+                                <option value={0.3}>Bao test</option>
                                 <option value={1}>1 tháng bảo hành</option>
                                 <option value={3}>3 tháng bảo hành (Mặc định)</option>
                                 <option value={6}>6 tháng bảo hành</option>
                                 <option value={12}>12 tháng bảo hành</option>
                               </select>
                             </div>
+                          </div>
+
+                          {/* Repair Debt Fields */}
+                          <div className="bg-slate-100 border border-slate-200 p-3 rounded-xl mt-3.5 space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                              <input 
+                                type="checkbox" 
+                                checked={isRepairDebt} 
+                                onChange={e => setIsRepairDebt(e.target.checked)}
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                              />
+                              <span className="text-xs font-bold text-slate-700 font-mono">Khách nợ lại tiền dịch vụ sửa</span>
+                            </label>
+
+                            {isRepairDebt && (
+                              <motion.div 
+                                initial={{ opacity: 0, height: 0 }} 
+                                animate={{ opacity: 1, height: 'auto' }}
+                                className="space-y-2 pt-2 border-t border-slate-200 overflow-hidden"
+                              >
+                                <div>
+                                  <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Số tiền ghi nợ (VND)</label>
+                                  <input 
+                                    type="number" 
+                                    max={activeTicket.actualCost || activeTicket.estimatedCost}
+                                    min={0}
+                                    value={repairDebtAmount} 
+                                    onChange={e => setRepairDebtAmount(Math.min(activeTicket.actualCost || activeTicket.estimatedCost || 0, Number(e.target.value)))}
+                                    className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-hidden text-indigo-600 focus:border-indigo-505"
+                                  />
+                                  <p className="text-[10px] text-slate-400 mt-0.5">Tổng chi phí: {formatVND(activeTicket.actualCost || activeTicket.estimatedCost || 0)}</p>
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Hạn thanh toán</label>
+                                  <input 
+                                    type="date" 
+                                    value={repairDebtDueDate}
+                                    onChange={e => setRepairDebtDueDate(e.target.value)}
+                                    className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 focus:outline-hidden"
+                                  />
+                                </div>
+                              </motion.div>
+                            )}
                           </div>
                         </>
                       )}
