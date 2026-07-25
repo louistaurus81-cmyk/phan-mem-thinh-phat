@@ -171,20 +171,19 @@ export default function SalesManager({
         }
       }
       
-      const exactMatch = products.find(p => p.sku.toLowerCase() === lowercode);
+      const exactMatch = products.find(p => p.sku && p.sku.toLowerCase() === lowercode);
       if (exactMatch) {
          if (exactMatch.hasImei) {
-            // Instead of just alert, perhaps open the selector
             setSelectingImeiFor(exactMatch);
             return;
          }
          addToCart(exactMatch);
-         setProductSearch(''); // Clear search after auto-adding
+         setProductSearch('');
       }
     }
   });
 
-  // Filter products based on search, category selection, and low stock warning status
+  // Filter products based on search and category selection
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const term = productSearch.toLowerCase();
@@ -192,17 +191,15 @@ export default function SalesManager({
       
       const matchesSearch = 
         p.name.toLowerCase().includes(term) ||
-        p.sku.toLowerCase().includes(term) ||
+        (p.sku && p.sku.toLowerCase().includes(term)) ||
         p.category.toLowerCase().includes(term) ||
-        (p.location && p.location.toLowerCase().includes(term)) ||
         matchesImeiInStock;
       
       const matchesCategory = selectedCategory === 'Tất cả' || p.category === selectedCategory;
-      const matchesLowStock = !showLowStockOnly || (p.hasImei ? (imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length) : p.stock) <= (p.minStock ?? 5);
 
-      return matchesSearch && matchesCategory && matchesLowStock;
+      return matchesSearch && matchesCategory;
     });
-  }, [products, imeis, productSearch, selectedCategory, showLowStockOnly]);
+  }, [products, imeis, productSearch, selectedCategory]);
 
   // Filter invoices based on search
   const filteredInvoices = useMemo(() => {
@@ -466,23 +463,23 @@ export default function SalesManager({
   // Create new product submission
   const handleCreateProductSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProduct.name || !newProduct.sku) {
-      alert('Vui lòng nhập tên và mã SKU sản phẩm');
+    if (!newProduct.name) {
+      alert('Vui lòng nhập tên sản phẩm');
       return;
     }
     
     const selectedCat = newProduct.category || (categories[0]?.name || 'Điện thoại');
+    const autoSku = newProduct.sku?.trim() || `LK-${Date.now().toString().slice(-6)}`;
 
     onAddProduct({
       name: newProduct.name,
-      sku: newProduct.sku,
+      sku: autoSku,
       category: selectedCat,
       price: Number(newProduct.price),
       cost: Number(newProduct.cost),
-      stock: Number(newProduct.stock),
+      stock: newProduct.hasImei ? 0 : Number(newProduct.stock),
       warrantyMonths: Number(newProduct.warrantyMonths),
-      location: newProduct.location || undefined,
-      minStock: Number(newProduct.minStock) || 5,
+      minStock: 0,
       hasImei: newProduct.hasImei,
       supplierId: newProduct.supplierId || undefined
     });
@@ -496,7 +493,7 @@ export default function SalesManager({
       warrantyMonths: 12,
       category: '',
       location: '',
-      minStock: 5,
+      minStock: 0,
       hasImei: false,
       supplierId: ''
     });
@@ -506,11 +503,16 @@ export default function SalesManager({
   // Edit product submission
   const handleEditProductSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingProduct || !editingProduct.name || !editingProduct.sku) {
-      alert('Vui lòng nhập tên và mã SKU sản phẩm');
+    if (!editingProduct || !editingProduct.name) {
+      alert('Vui lòng nhập tên sản phẩm');
       return;
     }
-    onUpdateProduct(editingProduct);
+    onUpdateProduct({
+      ...editingProduct,
+      sku: editingProduct.sku?.trim() || `LK-${Date.now().toString().slice(-6)}`,
+      minStock: 0,
+      hasImei: editingProduct.hasImei || false
+    });
     setEditingProduct(null);
     setShowEditProductModal(false);
     alert('Cập nhật linh kiện/sản phẩm thành công!');
@@ -603,7 +605,6 @@ export default function SalesManager({
                     if (!valueTrimmed) return;
                     
                     const lower = valueTrimmed.toLowerCase();
-                    // Try to find if it matches an IMEI
                     const matchedImei = imeis.find(i => i.imei.toLowerCase() === lower && i.status === 'in_stock');
                     if (matchedImei) {
                       const prod = products.find(p => p.id === matchedImei.productId);
@@ -614,11 +615,10 @@ export default function SalesManager({
                       }
                     }
                     
-                    // Try to find if it matches a SKU
-                    const exactMatch = products.find(p => p.sku.toLowerCase() === lower);
+                    const exactMatch = products.find(p => (p.sku && p.sku.toLowerCase() === lower) || p.name.toLowerCase().includes(lower));
                     if (exactMatch) {
                       if (exactMatch.hasImei) {
-                        alert('Sản phẩm này quản lý bằng IMEI. Vui lòng nhập/quét chính xác mã IMEI/Serial của bản thể sản phẩm!');
+                        setSelectingImeiFor(exactMatch);
                         return;
                       }
                       addToCart(exactMatch);
@@ -665,7 +665,6 @@ export default function SalesManager({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {filteredProducts.map(prod => {
                 const inStockAmt = prod.hasImei ? imeis.filter(i => i.productId === prod.id && i.status === 'in_stock').length : prod.stock;
-                const isLowStock = inStockAmt <= (prod.minStock ?? 5);
 
                 return (
                 <div 
@@ -679,25 +678,21 @@ export default function SalesManager({
                       <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-sm">
                         {prod.category}
                       </span>
-                      <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm">
-                        {prod.sku}
-                      </span>
-                    </div>
-                    <h4 className="font-semibold text-slate-800 text-sm mt-2 line-clamp-1">{prod.name}</h4>
-                    <p className="text-xs text-slate-500 mt-1">Bảo hành: <span className="font-semibold text-indigo-600">{formatWarrantyText(prod.warrantyMonths)}</span></p>
-                    {prod.location && (
-                      <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span>Vị trí: <span className="font-bold text-slate-600">{prod.location}</span></span>
-                      </p>
-                    )}
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Tồn kho: <span className={`font-bold ${isLowStock ? 'text-rose-600' : 'text-slate-700'}`}>{inStockAmt} chiếc</span>
-                      {isLowStock && (
-                        <span className="text-[9px] text-rose-600 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded-sm font-bold ml-1.5 inline-block">
-                          Dưới mức tối thiểu! ({prod.minStock ?? 5})
+                      {prod.sku && (
+                        <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm">
+                          {prod.sku}
                         </span>
                       )}
+                    </div>
+                    <h4 className="font-semibold text-slate-800 text-sm mt-2 line-clamp-1">{prod.name}</h4>
+                    {prod.hasImei && (
+                      <span className="text-[10px] text-indigo-600 bg-indigo-50 font-semibold px-1.5 py-0.5 rounded-sm border border-indigo-100 mt-1 inline-block">
+                        Quản lý IMEI
+                      </span>
+                    )}
+                    <p className="text-xs text-slate-500 mt-1">Bảo hành: <span className="font-semibold text-indigo-600">{formatWarrantyText(prod.warrantyMonths)}</span></p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Tồn kho: <span className="font-bold text-slate-700">{inStockAmt} chiếc</span>
                     </p>
                   </div>
                   
@@ -1125,7 +1120,7 @@ export default function SalesManager({
               <input 
                 id="search-inventory-products"
                 type="text"
-                placeholder="Tìm sản phẩm theo SKU, Tên, Danh mục, Vị trí..."
+                placeholder="Tìm sản phẩm theo SKU, Tên, Danh mục..."
                 value={productSearch}
                 onChange={e => setProductSearch(e.target.value)}
                 className="w-full text-sm bg-slate-50 border border-slate-200 pl-10 pr-4 py-2.5 rounded-xl focus:outline-hidden focus:border-indigo-500 focus:bg-white transition-all"
@@ -1146,21 +1141,6 @@ export default function SalesManager({
                 ))}
               </select>
             </div>
-
-            {/* Dynamic minimal stock warning control box */}
-            <button
-              id="toggle-low-stock-alert"
-              type="button"
-              onClick={() => setShowLowStockOnly(!showLowStockOnly)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold select-none transition cursor-pointer border w-full md:w-auto justify-center ${
-                showLowStockOnly 
-                  ? 'bg-rose-500 text-white border-rose-600 shadow-xs' 
-                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-              }`}
-            >
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Cảnh báo tồn tối thiểu ({products.filter(p => p.stock <= (p.minStock ?? 5)).length})</span>
-            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -1170,11 +1150,9 @@ export default function SalesManager({
                   <th className="pb-3">Mã SKU</th>
                   <th className="pb-3">Tên Linh Kiện / Sản Phẩm</th>
                   <th className="pb-3">Danh Mục</th>
-                  <th className="pb-3">Vị Trí Kho</th>
                   <th className="pb-3">Giá Nhập</th>
                   <th className="pb-3">Giá Xuất</th>
                   <th className="pb-3">Bảo Hành</th>
-                  <th className="pb-3">Mức Tối Thiểu</th>
                   <th className="pb-3">Tồn Kho</th>
                   <th className="pb-3 text-right">Thao Tác</th>
                 </tr>
@@ -1182,10 +1160,9 @@ export default function SalesManager({
               <tbody className="divide-y divide-slate-100">
                 {filteredProducts.map(prod => {
                   const inStockAmt = prod.hasImei ? imeis.filter(i => i.productId === prod.id && i.status === 'in_stock').length : prod.stock;
-                  const isLowStock = inStockAmt <= (prod.minStock ?? 5);
                   return (
                     <tr key={prod.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-3.5 font-mono font-semibold text-slate-500">{prod.sku}</td>
+                      <td className="py-3.5 font-mono font-semibold text-slate-500">{prod.sku || '---'}</td>
                       <td className="py-3.5">
                         <div className="font-semibold text-slate-800">{prod.name}</div>
                         {prod.hasImei && (
@@ -1204,60 +1181,43 @@ export default function SalesManager({
                           {prod.category}
                         </span>
                       </td>
-                      <td className="py-3.5">
-                        {prod.location ? (
-                          <span className="text-xs text-slate-600 font-medium flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                            {prod.location}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-400 italic">Chưa xếp kệ</span>
-                        )}
-                      </td>
                       <td className="py-3.5 font-semibold text-rose-500">{formatVND(prod.cost)}</td>
                       <td className="py-3.5 font-bold text-emerald-600">{formatVND(prod.price)}</td>
                       <td className="py-3.5 text-xs text-slate-500">{formatWarrantyText(prod.warrantyMonths)}</td>
-                      <td className="py-3.5 text-xs font-semibold text-slate-600">{prod.minStock ?? 5} chiếc</td>
                       <td className="py-3.5">
-                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                          isLowStock 
-                            ? 'text-rose-600 bg-rose-50 border border-rose-100 animate-pulse' 
-                            : 'text-slate-700 bg-slate-100'
-                        }`}>
-                          {inStockAmt} chiếc {isLowStock && '⚠️'}
+                        <span className="text-xs font-bold px-2.5 py-1 rounded-full text-slate-700 bg-slate-100">
+                          {inStockAmt} chiếc
                         </span>
                       </td>
                       <td className="py-3.5 text-right">
                         <div className="inline-flex items-center gap-1.5">
-                          {/* Stock adjusting tool */}
+                          {/* Stock adjusting tool / IMEI management */}
                           {prod.hasImei ? (
-                             <button
-                               onClick={() => setManagingImeisFor(prod)}
-                               className="text-[11px] font-bold bg-indigo-50 text-indigo-600 px-2.5 py-1.5 rounded-md border border-indigo-100 hover:bg-indigo-100 transition whitespace-nowrap cursor-pointer"
-                             >
-                               IMEI ({inStockAmt})
-                             </button>
+                            <button
+                              onClick={() => setManagingImeisFor(prod)}
+                              className="text-[11px] font-bold bg-indigo-50 text-indigo-600 px-2.5 py-1.5 rounded-md border border-indigo-100 hover:bg-indigo-100 transition whitespace-nowrap cursor-pointer flex items-center gap-1"
+                            >
+                              <QrCode className="w-3.5 h-3.5" />
+                              Quản lý IMEI ({inStockAmt})
+                            </button>
                           ) : (
                             <div className="inline-flex gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                               <button 
                                 id={`btn-dev-ded-stock-${prod.id}`}
-                              onClick={() => {
-                                const nextStock = Math.max(0, prod.stock - 1);
-                                onUpdateProductStock(prod.id, nextStock);
-                                if (nextStock <= (prod.minStock ?? 5)) {
-                                  // alert warning
-                                }
-                              }}
-                              title="Giảm 1"
-                              className="px-1.5 py-0.5 bg-white border border-slate-200 font-bold hover:shadow-2xs rounded-md text-[10px] cursor-pointer"
-                            >-</button>
-                            <button 
-                              id={`btn-dev-inc-stock-${prod.id}`}
-                              onClick={() => onUpdateProductStock(prod.id, prod.stock + 1)}
-                              title="Tăng 1"
-                              className="px-1.5 py-0.5 bg-white border border-slate-200 font-bold hover:shadow-2xs rounded-md text-[10px] cursor-pointer"
-                            >+</button>
-                          </div>
+                                onClick={() => {
+                                  const nextStock = Math.max(0, prod.stock - 1);
+                                  onUpdateProductStock(prod.id, nextStock);
+                                }}
+                                title="Giảm 1"
+                                className="px-1.5 py-0.5 bg-white border border-slate-200 font-bold hover:shadow-2xs rounded-md text-[10px] cursor-pointer"
+                              >-</button>
+                              <button 
+                                id={`btn-dev-inc-stock-${prod.id}`}
+                                onClick={() => onUpdateProductStock(prod.id, prod.stock + 1)}
+                                title="Tăng 1"
+                                className="px-1.5 py-0.5 bg-white border border-slate-200 font-bold hover:shadow-2xs rounded-md text-[10px] cursor-pointer"
+                              >+</button>
+                            </div>
                           )}
 
                           {/* Edit logic */}
@@ -1544,7 +1504,7 @@ export default function SalesManager({
                     type="text"
                     required
                     placeholder="e.g. iPhone 15 Pro Max 512GB"
-                    value={newProduct.name}
+                    value={newProduct.name ?? ''}
                     onChange={e => setNewProduct({...newProduct, name: e.target.value})}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                   />
@@ -1553,7 +1513,7 @@ export default function SalesManager({
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="block text-xs font-semibold text-slate-600">Mã SKU / Barcode / IMEI *</label>
+                      <label className="block text-xs font-semibold text-slate-600">Mã SKU / Barcode (Tùy chọn)</label>
                       <button
                         type="button"
                         onClick={() => {
@@ -1561,17 +1521,16 @@ export default function SalesManager({
                           setNewProduct(prev => ({ ...prev, sku: generated }));
                         }}
                         className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold transition flex items-center gap-0.5 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md border border-indigo-100"
-                        title="Tự động tạo mã vạch cho sản phẩm cũ/không có SKU"
+                        title="Tự động tạo mã vạch"
                       >
-                        <Sparkles className="w-2.5 h-2.5" /> Tạo mã cũ
+                        <Sparkles className="w-2.5 h-2.5" /> Tạo mã
                       </button>
                     </div>
                     <input 
                       id="input-product-sku"
                       type="text"
-                      required
-                      placeholder="e.g. IP15PM-512"
-                      value={newProduct.sku}
+                      placeholder="e.g. IP15PM-512 (Tự sinh nếu trống)"
+                      value={newProduct.sku ?? ''}
                       onChange={e => setNewProduct({...newProduct, sku: e.target.value})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                     />
@@ -1580,7 +1539,7 @@ export default function SalesManager({
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Danh Mục</label>
                     <select 
                       id="select-product-category"
-                      value={newProduct.category}
+                      value={newProduct.category ?? ''}
                       onChange={e => setNewProduct({...newProduct, category: e.target.value})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
                     >
@@ -1594,37 +1553,11 @@ export default function SalesManager({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Vị Trí Lưu Kho (Vị trí phân loại)</label>
-                    <input 
-                      id="input-product-location"
-                      type="text"
-                      placeholder="e.g. Kệ A-3, Hộp B-12"
-                      value={newProduct.location}
-                      onChange={e => setNewProduct({...newProduct, location: e.target.value})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Cảnh Báo Khi Tồn Kho Dưới (Cài đặt)</label>
-                    <input 
-                      id="input-product-minstock"
-                      type="number"
-                      required
-                      placeholder="e.g. 5"
-                      value={newProduct.minStock}
-                      onChange={e => setNewProduct({...newProduct, minStock: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
                 <div className="flex items-center">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input 
                       type="checkbox"
-                      checked={newProduct.hasImei}
+                      checked={newProduct.hasImei ?? false}
                       onChange={e => setNewProduct({...newProduct, hasImei: e.target.checked, stock: e.target.checked ? 0 : newProduct.stock})}
                       className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                     />
@@ -1640,7 +1573,7 @@ export default function SalesManager({
                       type="number"
                       required
                       placeholder="e.g. 25000000"
-                      value={newProduct.cost}
+                      value={newProduct.cost ?? 0}
                       onChange={e => setNewProduct({...newProduct, cost: Number(e.target.value)})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                     />
@@ -1652,7 +1585,7 @@ export default function SalesManager({
                       type="number"
                       required
                       placeholder="e.g. 29000000"
-                      value={newProduct.price}
+                      value={newProduct.price ?? 0}
                       onChange={e => setNewProduct({...newProduct, price: Number(e.target.value)})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                     />
@@ -1666,9 +1599,10 @@ export default function SalesManager({
                       id="input-product-stock"
                       type="number"
                       required
-                      value={newProduct.stock}
+                      disabled={newProduct.hasImei}
+                      value={newProduct.hasImei ? 0 : newProduct.stock}
                       onChange={e => setNewProduct({...newProduct, stock: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden"
+                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden disabled:opacity-50"
                     />
                   </div>
                   <div>
@@ -1773,7 +1707,7 @@ export default function SalesManager({
                     type="text"
                     required
                     placeholder="e.g. iPhone 15 Pro Max"
-                    value={editingProduct.name}
+                    value={editingProduct.name ?? ''}
                     onChange={e => setEditingProduct({...editingProduct, name: e.target.value})}
                     className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                   />
@@ -1782,25 +1716,24 @@ export default function SalesManager({
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="block text-xs font-semibold text-slate-600">Mã SKU / Barcode / IMEI *</label>
+                      <label className="block text-xs font-semibold text-slate-600">Mã SKU / Barcode</label>
                       <button
                         type="button"
                         onClick={() => {
                           const generated = generateRandomBarcode(editingProduct.category || 'GEN');
-                          setEditingProduct(prev => ({ ...prev, sku: generated }));
+                          setEditingProduct(prev => prev ? ({ ...prev, sku: generated }) : null);
                         }}
                         className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold transition flex items-center gap-0.5 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md border border-indigo-100"
-                        title="Tự động tạo mã vạch cho sản phẩm cũ/không có SKU"
+                        title="Tự động tạo mã vạch"
                       >
-                        <Sparkles className="w-2.5 h-2.5" /> Tạo mã cũ
+                        <Sparkles className="w-2.5 h-2.5" /> Tạo mã
                       </button>
                     </div>
                     <input 
                       id="edit-product-sku"
                       type="text"
-                      required
                       placeholder="e.g. IP15PM"
-                      value={editingProduct.sku}
+                      value={editingProduct.sku ?? ''}
                       onChange={e => setEditingProduct({...editingProduct, sku: e.target.value})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                     />
@@ -1809,7 +1742,7 @@ export default function SalesManager({
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Danh Mục</label>
                     <select 
                       id="edit-product-category"
-                      value={editingProduct.category}
+                      value={editingProduct.category ?? ''}
                       onChange={e => setEditingProduct({...editingProduct, category: e.target.value})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
                     >
@@ -1820,37 +1753,11 @@ export default function SalesManager({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Vị Trí Lưu Kho (Vị trí phân loại)</label>
-                    <input 
-                      id="edit-product-location"
-                      type="text"
-                      placeholder="e.g. Kệ A-3, Hộp B-12"
-                      value={editingProduct.location || ''}
-                      onChange={e => setEditingProduct({...editingProduct, location: e.target.value})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Cảnh Báo Khi Tồn Kho Dưới</label>
-                    <input 
-                      id="edit-product-minstock"
-                      type="number"
-                      required
-                      placeholder="e.g. 5"
-                      value={editingProduct.minStock ?? 5}
-                      onChange={e => setEditingProduct({...editingProduct, minStock: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
                 <div className="flex items-center">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input 
                       type="checkbox"
-                      checked={editingProduct.hasImei || false}
+                      checked={editingProduct.hasImei ?? false}
                       onChange={e => setEditingProduct({...editingProduct, hasImei: e.target.checked})}
                       className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                     />
@@ -1866,7 +1773,7 @@ export default function SalesManager({
                       type="number"
                       required
                       placeholder="e.g. 25000000"
-                      value={editingProduct.cost}
+                      value={editingProduct.cost ?? 0}
                       onChange={e => setEditingProduct({...editingProduct, cost: Number(e.target.value)})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                     />
@@ -1878,7 +1785,7 @@ export default function SalesManager({
                       type="number"
                       required
                       placeholder="e.g. 29000000"
-                      value={editingProduct.price}
+                      value={editingProduct.price ?? 0}
                       onChange={e => setEditingProduct({...editingProduct, price: Number(e.target.value)})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
                     />
@@ -1892,7 +1799,7 @@ export default function SalesManager({
                       id="edit-product-stock"
                       type="number"
                       required
-                      value={editingProduct.stock}
+                      value={editingProduct.stock ?? 0}
                       onChange={e => setEditingProduct({...editingProduct, stock: Number(e.target.value)})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden"
                     />
@@ -1902,7 +1809,7 @@ export default function SalesManager({
                     <select 
                       id="edit-product-warranty"
                       required
-                      value={editingProduct.warrantyMonths}
+                      value={editingProduct.warrantyMonths ?? 12}
                       onChange={e => setEditingProduct({...editingProduct, warrantyMonths: Number(e.target.value)})}
                       className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden cursor-pointer"
                     >
