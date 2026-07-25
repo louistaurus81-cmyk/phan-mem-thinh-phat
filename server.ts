@@ -130,7 +130,12 @@ async function startServer() {
   // Serve Vite in development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        watch: {
+          ignored: ["**/DATASOFT/**", "**/*.json"]
+        }
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
