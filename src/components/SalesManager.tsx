@@ -147,6 +147,8 @@ export default function SalesManager({
   const [imeiInput, setImeiInput] = useState('');
   const [printingBarcode, setPrintingBarcode] = useState<{ productName: string; code: string } | null>(null);
   const [deletingImeiId, setDeletingImeiId] = useState<string | null>(null);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
 
   // Global Barcode Scanner Listener
   useBarcodeScanner((barcode) => {
@@ -1272,18 +1274,37 @@ export default function SalesManager({
                           </button>
 
                           {/* Delete logic */}
-                          <button
-                            id={`btn-delete-product-${prod.id}`}
-                            onClick={() => {
-                              if (confirm(`Bạn chắc chắn muốn xoá vĩnh viễn sản phẩm/linh kiện "${prod.name}" này chứ?`)) {
-                                onDeleteProduct(prod.id);
-                              }
-                            }}
-                            title="Xoá vĩnh viễn"
-                            className="p-1 px-1.5 bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 rounded-lg transition cursor-pointer text-xs"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {deletingProductId === prod.id ? (
+                            <div className="flex items-center gap-1 bg-rose-50 border border-rose-250 p-1 rounded-xl shadow-xs shrink-0">
+                              <button
+                                type="button"
+                                id={`btn-confirm-delete-product-${prod.id}`}
+                                onClick={() => {
+                                  onDeleteProduct(prod.id);
+                                  setDeletingProductId(null);
+                                }}
+                                className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black rounded-md cursor-pointer transition-all whitespace-nowrap"
+                              >
+                                Xóa luôn
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingProductId(null)}
+                                className="px-1.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-[10px] font-medium rounded-md cursor-pointer transition-all"
+                              >
+                                Huỷ
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              id={`btn-delete-product-${prod.id}`}
+                              onClick={() => setDeletingProductId(prod.id)}
+                              title="Xoá vĩnh viễn"
+                              className="p-1 px-1.5 bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 rounded-lg transition cursor-pointer text-xs"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1431,22 +1452,43 @@ export default function SalesManager({
                             <Edit className="w-4 h-4" />
                           </button>
                           
-                          <button 
-                            id={`btn-delete-cat-${cat.id}`}
-                            onClick={() => {
-                              if (productCount > 0) {
-                                alert(`Không thể xoá danh mục này vì đang có ${productCount} sản phẩm liên kết tới nó! Hãy đổi danh mục cho các sản phẩm đó trước.`);
-                                return;
-                              }
-                              if (confirm(`Bạn chắc chắn muốn xoá danh mục "${cat.name}"?`)) {
-                                onDeleteCategory(cat.id);
-                              }
-                            }}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 border border-slate-100 hover:border-rose-200 rounded-lg transition cursor-pointer"
-                            title="Xóa danh mục"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {deletingCategoryId === cat.id ? (
+                            <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 p-1 rounded-xl shadow-xs shrink-0">
+                              <button
+                                type="button"
+                                id={`btn-confirm-delete-cat-${cat.id}`}
+                                onClick={() => {
+                                  onDeleteCategory(cat.id);
+                                  setDeletingCategoryId(null);
+                                }}
+                                className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black rounded-md cursor-pointer transition-all whitespace-nowrap"
+                              >
+                                Xóa luôn
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingCategoryId(null)}
+                                className="px-1.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-[10px] font-bold rounded-md cursor-pointer transition-all"
+                              >
+                                Huỷ
+                              </button>
+                            </div>
+                          ) : (
+                            <button 
+                              id={`btn-delete-cat-${cat.id}`}
+                              onClick={() => {
+                                if (productCount > 0) {
+                                  alert(`Không thể xoá danh mục này vì đang có ${productCount} sản phẩm liên kết tới nó! Hãy đổi danh mục cho các sản phẩm đó trước.`);
+                                  return;
+                                }
+                                setDeletingCategoryId(cat.id);
+                              }}
+                              className="p-1.5 text-rose-500 hover:bg-rose-50 border border-slate-100 hover:border-rose-200 rounded-lg transition cursor-pointer"
+                              title="Xóa danh mục"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </>
                     )}

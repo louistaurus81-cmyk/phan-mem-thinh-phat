@@ -10,8 +10,8 @@ import {
   INITIAL_WARRANTIES 
 } from "./src/mockData";
 
-const PORT = 3000;
-const DATA_DIR = path.join(process.cwd(), "DATASOFT");
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "DATASOFT");
 
 // Helper to ensure database files exist and return paths
 function ensureDbFiles() {
@@ -143,8 +143,21 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server fully running in fullstack mode at http://0.0.0.0:${PORT}`);
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`=======================================================`);
+    console.log(`🚀 Server đang chạy thành công trên máy chủ Ubuntu/Linux`);
+    console.log(`📍 Địa chỉ truy cập: http://0.0.0.0:${PORT}`);
+    console.log(`📂 Thư mục lưu trữ dữ liệu JSON: ${DATA_DIR}`);
+    console.log(`=======================================================`);
+  });
+
+  process.on("SIGTERM", () => {
+    console.log("SIGTERM received, closing server...");
+    server.close(() => console.log("Server closed."));
+  });
+  process.on("SIGINT", () => {
+    console.log("SIGINT received, closing server...");
+    server.close(() => console.log("Server closed."));
   });
 }
 
