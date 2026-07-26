@@ -59,6 +59,7 @@ export default function OwnerDashboard({
   const [logFilterCategory, setLogFilterCategory] = useState<'all' | 'unread' | ActivityType>('all');
   const [selectedStaffName, setSelectedStaffName] = useState<string>('all');
   const [logSearchQuery, setLogSearchQuery] = useState<string>('');
+  const [confirmingClearLogs, setConfirmingClearLogs] = useState<boolean>(false);
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -381,19 +382,39 @@ export default function OwnerDashboard({
               </button>
             )}
             {activities.length > 0 && (
-              <button
-                id="btn-owner-clear-logs"
-                onClick={() => {
-                  if (window.confirm('Bạn có chắc chắn muốn xoá toàn bộ nhật ký thao tác này không?')) {
-                    onClearLogs?.();
-                  }
-                }}
-                className="px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
-                title="Xóa lịch sử nhật ký"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Xóa lịch sử
-              </button>
+              <div className="relative">
+                {confirmingClearLogs ? (
+                  <div className="flex items-center gap-1 bg-rose-50 border border-rose-200 p-1 rounded-xl shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClearLogs?.();
+                        setConfirmingClearLogs(false);
+                      }}
+                      className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg cursor-pointer transition whitespace-nowrap"
+                    >
+                      Xác nhận xóa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingClearLogs(false)}
+                      className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs font-bold rounded-lg cursor-pointer transition"
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    id="btn-owner-clear-logs"
+                    onClick={() => setConfirmingClearLogs(true)}
+                    className="px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                    title="Xóa lịch sử nhật ký"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Xóa lịch sử
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

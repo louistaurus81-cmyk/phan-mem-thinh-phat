@@ -35,6 +35,7 @@ export default function SupplierManager({ suppliers, onUpdateSuppliers, products
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [deletingSupplier, setDeletingSupplier] = useState<Supplier | null>(null);
 
   // Form states
   const [supplierForm, setSupplierForm] = useState({
@@ -118,21 +119,11 @@ export default function SupplierManager({ suppliers, onUpdateSuppliers, products
   };
 
   // Handle deleting supplier
-  const handleDeleteSupplier = (id: string, name: string) => {
-    const isUsed = products.some(p => p.supplierId === id);
-    if (isUsed) {
-      alert(`Không thể xóa nhà cung cấp "${name}" vì đang có sản phẩm trong kho được nhập từ đối tác này. Hãy đổi nhà cung cấp của sản phẩm trước.`);
-      return;
-    }
-
-    if (!confirm(`Bạn có chắc chắn muốn xóa nhà cung cấp "${name}" khỏi danh mục không?`)) {
-      return;
-    }
-
-    const updated = suppliers.filter(s => s.id !== id);
+  const confirmDeleteSupplier = (sup: Supplier) => {
+    const updated = suppliers.filter(s => s.id !== sup.id);
     onUpdateSuppliers(updated);
-    if (selectedSupplierId === id) setSelectedSupplierId(null);
-    alert('Đã xóa nhà cung cấp khỏi hệ thống.');
+    if (selectedSupplierId === sup.id) setSelectedSupplierId(null);
+    setDeletingSupplier(null);
   };
 
   // Filter products matching current inspection scope
@@ -233,7 +224,7 @@ export default function SupplierManager({ suppliers, onUpdateSuppliers, products
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteSupplier(sup.id, sup.name);
+                          setDeletingSupplier(sup);
                         }}
                         className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-500 rounded-md transition cursor-pointer"
                         title="Xóa nhà phân phối"
@@ -516,6 +507,71 @@ export default function SupplierManager({ suppliers, onUpdateSuppliers, products
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Supplier Modal */}
+      <AnimatePresence>
+        {deletingSupplier && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeletingSupplier(null)}
+              className="fixed inset-0 bg-black"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-md z-10 relative border border-slate-100 space-y-4"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="p-3 bg-rose-50 rounded-2xl">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Xóa Nhà Cung Cấp</h3>
+                  <p className="text-xs text-slate-500 font-medium">{deletingSupplier.name}</p>
+                </div>
+              </div>
+
+              {products.some(p => p.supplierId === deletingSupplier.id) ? (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-xs space-y-1">
+                  <p className="font-bold">⚠️ Không thể xóa nhà cung cấp này!</p>
+                  <p>
+                    Đang có sản phẩm trong kho liên kết với đối tác "{deletingSupplier.name}". Vui lòng đổi nhà cung cấp của các sản phẩm đó trước khi xóa.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-600">
+                  Bạn có chắc chắn muốn xóa nhà cung cấp <span className="font-bold text-slate-900">"{deletingSupplier.name}"</span> khỏi hệ thống không?
+                </p>
+              )}
+
+              <div className="pt-2 flex gap-3 justify-end">
+                <button 
+                  type="button" 
+                  onClick={() => setDeletingSupplier(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer transition"
+                >
+                  {products.some(p => p.supplierId === deletingSupplier.id) ? 'Đóng' : 'Hủy bỏ'}
+                </button>
+                {!products.some(p => p.supplierId === deletingSupplier.id) && (
+                  <button 
+                    type="button" 
+                    id="btn-confirm-delete-supplier"
+                    onClick={() => confirmDeleteSupplier(deletingSupplier)}
+                    className="px-4 py-2 text-xs font-black bg-rose-600 hover:bg-rose-700 text-white rounded-xl cursor-pointer shadow-2xs transition"
+                  >
+                    Xóa nhà cung cấp
+                  </button>
+                )}
+              </div>
             </motion.div>
           </div>
         )}

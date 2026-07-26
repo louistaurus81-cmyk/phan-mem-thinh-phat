@@ -641,6 +641,13 @@ export default function App() {
     logActivity('customer', 'Cập nhật hồ sơ khách hàng', `Tên: ${customer.name} - SĐT: ${customer.phone}`, undefined, 'info');
   };
 
+  const handleDeleteCustomer = (id: string) => {
+    const targetCust = customers.find(c => c.id === id);
+    const updated = customers.filter(c => c.id !== id);
+    saveCustomers(updated);
+    logActivity('customer', 'Xóa hồ sơ khách hàng', `Đã xóa khách hàng: ${targetCust ? targetCust.name : id} (SĐT: ${targetCust?.phone || 'N/A'})`, undefined, 'danger');
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row antialiased p-4 md:p-6 gap-6">
       
@@ -1116,6 +1123,7 @@ export default function App() {
                 repairs={repairs}
                 onAddCustomer={handleAddCustomer}
                 onEditCustomer={handleEditCustomer}
+                onDeleteCustomer={handleDeleteCustomer}
               />
             )}
 

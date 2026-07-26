@@ -247,7 +247,6 @@ export default function PCBuilder({
 
   // Presets load templates
   const applyPresetTemplate = (type: 'office' | 'gaming' | 'designer') => {
-    if (!confirm('Bạn có đồng ý xóa cấu hình hiện tại để áp dụng cấu hình mẫu?')) return;
 
     if (type === 'office') {
       // Look up cheap office parts if available or simulate them
@@ -294,20 +293,18 @@ export default function PCBuilder({
 
   // Reset build to empty
   const handleResetBuild = () => {
-    if (confirm('Làm trống toàn bộ linh kiện PC đã thiết lập?')) {
-      setBuild(
-        DEFAULT_SLOTS.map(slot => ({
-          slotId: slot.id,
-          slotName: slot.name,
-          productId: '',
-          productName: '',
-          price: 0,
-          originalPrice: 0,
-          quantity: 1,
-          warrantyMonths: 36
-        }))
-      );
-    }
+    setBuild(
+      DEFAULT_SLOTS.map(slot => ({
+        slotId: slot.id,
+        slotName: slot.name,
+        productId: '',
+        productName: '',
+        price: 0,
+        originalPrice: 0,
+        quantity: 1,
+        warrantyMonths: 36
+      }))
+    );
   };
 
   // Calculate Subtotal & Total
