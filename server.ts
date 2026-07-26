@@ -39,6 +39,7 @@ function ensureDbFiles() {
     imeis: [],
     debts: [],
     suppliers: [],
+    activities: [],
     users: [
       { id: "usr_admin", username: "admin", password: "123", fullName: "Nguyễn Văn Admin", role: "admin", phone: "0901234567", createdAt: new Date().toISOString() },
       { id: "usr_sales", username: "sales", password: "123", fullName: "Lê Thị Bán Hàng", role: "sales", phone: "0912233445", createdAt: new Date().toISOString() },
@@ -83,7 +84,7 @@ async function startServer() {
   // 1. API: Get all central database states (Booting)
   app.get("/api/db", (req, res) => {
     try {
-      const keys = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers"];
+      const keys = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "activities"];
       const responseBody: Record<string, any> = {};
 
       for (const k of keys) {
@@ -107,7 +108,7 @@ async function startServer() {
   app.post("/api/save", (req, res) => {
     try {
       const { type, data } = req.body;
-      const validTypes = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers"];
+      const validTypes = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "activities"];
 
       if (!validTypes.includes(type)) {
         return res.status(400).json({ success: false, error: `Invalid collection type: ${type}` });

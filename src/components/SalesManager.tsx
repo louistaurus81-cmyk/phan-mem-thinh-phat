@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText, generateRandomIMEI, generateRandomBarcode, renderCode39SVG } from '../types';
+import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText, generateRandomIMEI, generateRandomBarcode, renderCode39SVG, getUserPermissions } from '../types';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Plus, 
@@ -66,6 +66,8 @@ export default function SalesManager({
   onDeleteCategory,
   onUpdateImeis
 }: SalesManagerProps) {
+  const userPerms = getUserPermissions(currentUser);
+
   // Navigation inside SalesManager (either 'pos' or 'invoices' or 'products' or 'categories')
   const [subTab, setSubTab] = useState<'pos' | 'invoices' | 'products' | 'categories'>(
     () => (localStorage.getItem('thinhphat_v2_sales_subtab') as any) || 'pos'
@@ -566,6 +568,10 @@ export default function SalesManager({
           <button 
             id="btn-add-product-modal"
             onClick={() => {
+              if (!userPerms.canManageInventory) {
+                alert('Tài khoản của bạn không có quyền Quản lý tồn kho & Thêm mới sản phẩm!');
+                return;
+              }
               setNewProduct({
                 name: '',
                 sku: '',
@@ -1205,17 +1211,35 @@ export default function SalesManager({
                               <button 
                                 id={`btn-dev-ded-stock-${prod.id}`}
                                 onClick={() => {
+                                  if (!userPerms.canEditStock) {
+                                    alert('Tài khoản của bạn chưa được cấp quyền "Chỉnh sửa số lượng hàng trong kho". Vui lòng liên hệ Admin cửa hàng!');
+                                    return;
+                                  }
                                   const nextStock = Math.max(0, prod.stock - 1);
                                   onUpdateProductStock(prod.id, nextStock);
                                 }}
-                                title="Giảm 1"
-                                className="px-1.5 py-0.5 bg-white border border-slate-200 font-bold hover:shadow-2xs rounded-md text-[10px] cursor-pointer"
+                                title={userPerms.canEditStock ? "Giảm 1" : "Cần quyền Chỉnh sửa số lượng kho"}
+                                className={`px-1.5 py-0.5 border font-bold rounded-md text-[10px] ${
+                                  userPerms.canEditStock 
+                                    ? 'bg-white border-slate-200 hover:shadow-2xs cursor-pointer text-slate-800' 
+                                    : 'bg-slate-200 border-slate-300 text-slate-400 cursor-not-allowed'
+                                }`}
                               >-</button>
                               <button 
                                 id={`btn-dev-inc-stock-${prod.id}`}
-                                onClick={() => onUpdateProductStock(prod.id, prod.stock + 1)}
-                                title="Tăng 1"
-                                className="px-1.5 py-0.5 bg-white border border-slate-200 font-bold hover:shadow-2xs rounded-md text-[10px] cursor-pointer"
+                                onClick={() => {
+                                  if (!userPerms.canEditStock) {
+                                    alert('Tài khoản của bạn chưa được cấp quyền "Chỉnh sửa số lượng hàng trong kho". Vui lòng liên hệ Admin cửa hàng!');
+                                    return;
+                                  }
+                                  onUpdateProductStock(prod.id, prod.stock + 1);
+                                }}
+                                title={userPerms.canEditStock ? "Tăng 1" : "Cần quyền Chỉnh sửa số lượng kho"}
+                                className={`px-1.5 py-0.5 border font-bold rounded-md text-[10px] ${
+                                  userPerms.canEditStock 
+                                    ? 'bg-white border-slate-200 hover:shadow-2xs cursor-pointer text-slate-800' 
+                                    : 'bg-slate-200 border-slate-300 text-slate-400 cursor-not-allowed'
+                                }`}
                               >+</button>
                             </div>
                           )}
@@ -1224,6 +1248,10 @@ export default function SalesManager({
                           <button
                             id={`btn-edit-product-${prod.id}`}
                             onClick={() => {
+                              if (!userPerms.canManageInventory) {
+                                alert('Tài khoản của bạn không có quyền Quản lý tồn kho & chỉnh sửa sản phẩm!');
+                                return;
+                              }
                               setEditingProduct({...prod});
                               setShowEditProductModal(true);
                             }}
@@ -1240,6 +1268,10 @@ export default function SalesManager({
                                 type="button"
                                 id={`btn-confirm-delete-product-${prod.id}`}
                                 onClick={() => {
+                                  if (!userPerms.canEditStock) {
+                                    alert('Tài khoản của bạn không có quyền "Chỉnh sửa số lượng & Xóa SP/Danh mục"!');
+                                    return;
+                                  }
                                   onDeleteProduct(prod.id);
                                   setDeletingProductId(null);
                                 }}
@@ -1258,7 +1290,13 @@ export default function SalesManager({
                           ) : (
                             <button
                               id={`btn-delete-product-${prod.id}`}
-                              onClick={() => setDeletingProductId(prod.id)}
+                              onClick={() => {
+                                if (!userPerms.canEditStock) {
+                                  alert('Tài khoản của bạn không có quyền "Chỉnh sửa số lượng & Xóa SP/Danh mục"!');
+                                  return;
+                                }
+                                setDeletingProductId(prod.id);
+                              }}
                               title="Xoá vĩnh viễn"
                               className="p-1 px-1.5 bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 rounded-lg transition cursor-pointer text-xs"
                             >
@@ -1298,6 +1336,10 @@ export default function SalesManager({
             <form 
               onSubmit={(e) => {
                 e.preventDefault();
+                if (!userPerms.canManageInventory) {
+                  alert('Tài khoản của bạn không có quyền Quản lý tồn kho & Thêm mới danh mục!');
+                  return;
+                }
                 if (!newCategoryName.trim()) {
                   alert('Vui lòng nhập tên danh mục');
                   return;
@@ -1403,6 +1445,10 @@ export default function SalesManager({
                           <button 
                             id={`btn-edit-cat-${cat.id}`}
                             onClick={() => {
+                              if (!userPerms.canManageInventory) {
+                                alert('Tài khoản của bạn không có quyền Quản lý tồn kho & Sửa danh mục!');
+                                return;
+                              }
                               setEditingCategoryId(cat.id);
                               setEditingCategoryName(cat.name);
                             }}
@@ -1418,6 +1464,10 @@ export default function SalesManager({
                                 type="button"
                                 id={`btn-confirm-delete-cat-${cat.id}`}
                                 onClick={() => {
+                                  if (!userPerms.canEditStock) {
+                                    alert('Tài khoản của bạn không có quyền "Chỉnh sửa số lượng & Xóa SP/Danh mục"!');
+                                    return;
+                                  }
                                   onDeleteCategory(cat.id);
                                   setDeletingCategoryId(null);
                                 }}
@@ -1437,6 +1487,10 @@ export default function SalesManager({
                             <button 
                               id={`btn-delete-cat-${cat.id}`}
                               onClick={() => {
+                                if (!userPerms.canEditStock) {
+                                  alert('Tài khoản của bạn không có quyền "Chỉnh sửa số lượng & Xóa SP/Danh mục"!');
+                                  return;
+                                }
                                 if (productCount > 0) {
                                   alert(`Không thể xoá danh mục này vì đang có ${productCount} sản phẩm liên kết tới nó! Hãy đổi danh mục cho các sản phẩm đó trước.`);
                                   return;

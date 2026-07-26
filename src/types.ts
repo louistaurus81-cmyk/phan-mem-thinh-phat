@@ -74,6 +74,35 @@ export interface Debt {
 
 export type UserRole = 'admin' | 'sales' | 'technician';
 
+export type ActivityType = 'sale' | 'repair' | 'inventory' | 'debt' | 'customer' | 'supplier' | 'user' | 'system';
+
+export interface StaffActivityLog {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  type: ActivityType;
+  title: string;
+  details: string;
+  amount?: number;
+  readByOwner?: boolean;
+  severity?: 'info' | 'success' | 'warning' | 'danger';
+}
+
+export interface UserPermissions {
+  canManageInventory?: boolean;  // Thêm/sửa/xóa sản phẩm
+  canEditStock?: boolean;        // Chỉnh sửa số lượng hàng trong kho
+  canManageSales?: boolean;      // Bán hàng & tạo hóa đơn POS
+  canManageRepairs?: boolean;    // Tiếp nhận & sửa chữa
+  canManageWarranty?: boolean;   // Tra cứu & cấp thẻ bảo hành
+  canManageCustomers?: boolean;  // Quản lý thông tin khách hàng
+  canViewDebt?: boolean;         // Xem & thu hồi nợ khách hàng
+  canManageSuppliers?: boolean;  // Quản lý nhà cung cấp
+  canViewReports?: boolean;      // Xem báo cáo doanh thu & lợi nhuận
+  canManageSettings?: boolean;   // Cài đặt mẫu in & hệ thống
+}
+
 export interface User {
   id: string;
   username: string;
@@ -82,6 +111,57 @@ export interface User {
   role: UserRole;
   phone?: string;
   createdAt: string;
+  permissions?: UserPermissions;
+}
+
+export function getUserPermissions(user: User | null): Required<UserPermissions> {
+  if (!user) {
+    return {
+      canManageInventory: false,
+      canEditStock: false,
+      canManageSales: false,
+      canManageRepairs: false,
+      canManageWarranty: false,
+      canManageCustomers: false,
+      canViewDebt: false,
+      canManageSuppliers: false,
+      canViewReports: false,
+      canManageSettings: false,
+    };
+  }
+
+  // Admin always gets 100% permissions
+  if (user.role === 'admin') {
+    return {
+      canManageInventory: true,
+      canEditStock: true,
+      canManageSales: true,
+      canManageRepairs: true,
+      canManageWarranty: true,
+      canManageCustomers: true,
+      canViewDebt: true,
+      canManageSuppliers: true,
+      canViewReports: true,
+      canManageSettings: true,
+    };
+  }
+
+  const p = user.permissions || {};
+  const isSales = user.role === 'sales';
+  const isTech = user.role === 'technician';
+
+  return {
+    canManageInventory: p.canManageInventory ?? false,
+    canEditStock: p.canEditStock ?? false,
+    canManageSales: p.canManageSales ?? (isSales || isTech),
+    canManageRepairs: p.canManageRepairs ?? isTech,
+    canManageWarranty: p.canManageWarranty ?? true,
+    canManageCustomers: p.canManageCustomers ?? true,
+    canViewDebt: p.canViewDebt ?? isSales,
+    canManageSuppliers: p.canManageSuppliers ?? false,
+    canViewReports: p.canViewReports ?? false,
+    canManageSettings: p.canManageSettings ?? false,
+  };
 }
 
 export type RepairStatus = 'checking' | 'repairing' | 'completed' | 'delivered';

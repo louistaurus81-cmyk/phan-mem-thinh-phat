@@ -13,6 +13,8 @@ import {
   ProductIMEI,
   Debt,
   Supplier,
+  StaffActivityLog,
+  ActivityType,
   computeExpiryDate
 } from './types';
 import { 
@@ -33,6 +35,7 @@ import PCBuilder from './components/PCBuilder';
 import Login from './components/Login';
 import AccountManager from './components/AccountManager';
 import PrintSettingsManager from './components/PrintSettingsManager';
+import OwnerDashboard from './components/OwnerDashboard';
 import { 
   LayoutDashboard, 
   ShoppingBag, 
@@ -47,7 +50,10 @@ import {
   Cpu,
   Printer,
   ReceiptText,
-  Factory
+  Factory,
+  Crown,
+  Bell,
+  CheckCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -88,6 +94,8 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [activities, setActivities] = useState<StaffActivityLog[]>([]);
+  const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -102,7 +110,7 @@ export default function App() {
       const res = await fetch('/api/db');
       const payload = await res.json();
       if (payload.success && payload.db) {
-        const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers } = payload.db;
+        const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers, activities } = payload.db;
         if (products && products.length > 0) setProducts(products);
         if (customers && customers.length > 0) setCustomers(customers);
         if (invoices && invoices.length > 0) setInvoices(invoices);
@@ -113,6 +121,7 @@ export default function App() {
         if (imeis && imeis.length > 0) setImeis(imeis);
         if (debts && debts.length > 0) setDebts(debts);
         if (suppliers && suppliers.length > 0) setSuppliers(suppliers);
+        if (activities && activities.length > 0) setActivities(activities);
         if (settings && settings.length > 0) {
           setPrintSettings(settings[0]);
         }
@@ -131,6 +140,7 @@ export default function App() {
       const storedImeis = localStorage.getItem('thinhphat_v2_imeis');
       const storedDebts = localStorage.getItem('thinhphat_v2_debts');
       const storedSuppliers = localStorage.getItem('thinhphat_v2_suppliers');
+      const storedActivities = localStorage.getItem('thinhphat_v2_activities');
 
       if (storedUsers) setUsers(JSON.parse(storedUsers));
       if (storedProducts) setProducts(JSON.parse(storedProducts));
@@ -142,6 +152,7 @@ export default function App() {
       if (storedImeis) setImeis(JSON.parse(storedImeis));
       if (storedDebts) setDebts(JSON.parse(storedDebts));
       if (storedSuppliers) setSuppliers(JSON.parse(storedSuppliers));
+      if (storedActivities) setActivities(JSON.parse(storedActivities));
       if (storedSettings) {
         try {
           setPrintSettings(JSON.parse(storedSettings));
@@ -251,6 +262,61 @@ export default function App() {
     syncWithServer('suppliers', newSuppliers);
   };
 
+  const saveActivities = (newActivities: StaffActivityLog[]) => {
+    setActivities(newActivities);
+    localStorage.setItem('thinhphat_v2_activities', JSON.stringify(newActivities));
+    syncWithServer('activities', newActivities);
+  };
+
+  const logActivity = (
+    type: ActivityType,
+    title: string,
+    details: string,
+    amount?: number,
+    severity: 'info' | 'success' | 'warning' | 'danger' = 'info',
+    actorOverride?: { id: string; name: string; role: UserRole }
+  ) => {
+    const actorName = actorOverride?.name || currentUser?.fullName || 'Nhân viên';
+    const actorId = actorOverride?.id || currentUser?.id || 'unknown';
+    const actorRole = actorOverride?.role || currentUser?.role || 'sales';
+
+    const newLog: StaffActivityLog = {
+      id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      userId: actorId,
+      userName: actorName,
+      userRole: actorRole,
+      type,
+      title,
+      details,
+      amount,
+      readByOwner: false,
+      severity
+    };
+
+    setActivities(prev => {
+      const updated = [newLog, ...prev].slice(0, 300);
+      localStorage.setItem('thinhphat_v2_activities', JSON.stringify(updated));
+      syncWithServer('activities', updated);
+      return updated;
+    });
+  };
+
+  const handleMarkLogRead = (id?: string) => {
+    setActivities(prev => {
+      const updated = prev.map(a => (!id || a.id === id ? { ...a, readByOwner: true } : a));
+      localStorage.setItem('thinhphat_v2_activities', JSON.stringify(updated));
+      syncWithServer('activities', updated);
+      return updated;
+    });
+  };
+
+  const handleClearLogs = () => {
+    setActivities([]);
+    localStorage.setItem('thinhphat_v2_activities', JSON.stringify([]));
+    syncWithServer('activities', []);
+  };
+
   const handleAddUser = (u: Omit<User, 'id' | 'createdAt'>) => {
     const payload: User = {
       ...u,
@@ -258,6 +324,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
     saveUsers([...users, payload]);
+    logActivity('user', 'Thêm tài khoản nhân viên mới', `Họ tên: ${u.fullName} (@${u.username}) - Vai trò: ${u.role}`, undefined, 'warning');
   };
 
   const handleUpdateUser = (updatedUser: User) => {
@@ -267,11 +334,14 @@ export default function App() {
       setCurrentUser(updatedUser);
       localStorage.setItem('thinhphat_v2_current_user', JSON.stringify(updatedUser));
     }
+    logActivity('user', 'Cập nhật tài khoản & phân quyền nhân viên', `Họ tên: ${updatedUser.fullName} (@${updatedUser.username}) - Vai trò: ${updatedUser.role}`, undefined, 'warning');
   };
 
   const handleDeleteUser = (id: string) => {
+    const targetUser = users.find(u => u.id === id);
     const updated = users.filter(u => u.id !== id);
     saveUsers(updated);
+    logActivity('user', 'Xóa tài khoản nhân viên', `Tài khoản: ${targetUser ? targetUser.fullName : id}`, undefined, 'danger');
   };
 
   const handleLogin = (user: User) => {
@@ -295,16 +365,20 @@ export default function App() {
       id: `p_${Date.now()}`
     };
     saveProducts([...products, payload]);
+    logActivity('inventory', 'Thêm sản phẩm mới vào kho', `Tên: ${newProd.name} (SKU: ${newProd.sku || '---'}) - Giá bán: ${newProd.price.toLocaleString('vi-VN')}đ - Tồn ban đầu: ${newProd.stock}`, newProd.price, 'info');
   };
 
   const handleUpdateProduct = (updatedProd: Product) => {
     const updated = products.map(p => p.id === updatedProd.id ? updatedProd : p);
     saveProducts(updated);
+    logActivity('inventory', 'Chỉnh sửa thông tin sản phẩm', `Sản phẩm: ${updatedProd.name} (SKU: ${updatedProd.sku || '---'}) - Giá: ${updatedProd.price.toLocaleString('vi-VN')}đ`, updatedProd.price, 'info');
   };
 
   const handleDeleteProduct = (id: string) => {
+    const targetProd = products.find(p => p.id === id);
     const updated = products.filter(p => p.id !== id);
     saveProducts(updated);
+    logActivity('inventory', 'Xóa sản phẩm khỏi kho', `Đã xóa sản phẩm: ${targetProd ? targetProd.name : id}`, undefined, 'danger');
   };
 
   const handleAddCategory = (name: string) => {
@@ -313,25 +387,32 @@ export default function App() {
       name
     };
     saveCategories([...categories, newCat]);
+    logActivity('inventory', 'Thêm danh mục sản phẩm', `Danh mục mới: ${name}`, undefined, 'info');
   };
 
   const handleUpdateCategory = (id: string, newName: string) => {
     const updated = categories.map(c => c.id === id ? { ...c, name: newName } : c);
     saveCategories(updated);
+    logActivity('inventory', 'Cập nhật danh mục sản phẩm', `Đổi tên danh mục -> ${newName}`, undefined, 'info');
   };
 
   const handleDeleteCategory = (id: string) => {
+    const targetCat = categories.find(c => c.id === id);
     const updated = categories.filter(c => c.id !== id);
     saveCategories(updated);
+    logActivity('inventory', 'Xóa danh mục sản phẩm', `Danh mục: ${targetCat ? targetCat.name : id}`, undefined, 'danger');
   };
 
   const handleUpdateProductStock = (id: string, newStock: number) => {
+    const targetProd = products.find(p => p.id === id);
     const updated = products.map(p => p.id === id ? { ...p, stock: newStock } : p);
     saveProducts(updated);
+    logActivity('inventory', 'Điều chỉnh số lượng hàng tồn kho', `Sản phẩm: ${targetProd ? targetProd.name : id} -> Tồn kho mới: ${newStock}`, undefined, 'warning');
   };
 
   const handleAddInvoice = (newInvoice: SalesInvoice) => {
     saveInvoices([...invoices, newInvoice]);
+    logActivity('sale', 'Bán hàng - Tạo hóa đơn POS mới', `Số HĐ: #${newInvoice.invoiceNumber} - Khách: ${newInvoice.customerName} - SĐT: ${newInvoice.customerPhone || 'Không có'} - ${newInvoice.items.length} mặt hàng`, newInvoice.totalAmount, 'success');
 
     // Track debt if debtAmount > 0
     if (newInvoice.debtAmount && newInvoice.debtAmount > 0) {
@@ -441,6 +522,7 @@ export default function App() {
 
   const handleAddRepair = (ticket: RepairTicket) => {
     saveRepairs([...repairs, ticket]);
+    logActivity('repair', 'Tiếp nhận thiết bị sửa chữa mới', `Mã phiếu: #${ticket.ticketNumber} - Khách: ${ticket.customerName} (${ticket.customerPhone}) - Thiết bị: ${ticket.deviceName} - Lỗi: ${ticket.issueDescription}`, ticket.estimatedCost, 'info');
   };
 
   // Advanced repair transitions (terminal locking at status='delivered')
@@ -459,9 +541,11 @@ export default function App() {
     }
   ) => {
     let debtToSave: Debt | null = null;
+    let targetTicket: RepairTicket | undefined;
 
     const updated = repairs.map(rep => {
       if (rep.id !== id) return rep;
+      targetTicket = rep;
       
       // Block modifying terminal delivered state
       if (rep.status === 'delivered') return rep;
@@ -525,6 +609,17 @@ export default function App() {
 
     saveRepairs(updated);
 
+    const statusMap: Record<string, string> = {
+      pending: 'Đang chờ xử lý',
+      inspecting: 'Đang kiểm tra / báo giá',
+      repairing: 'Đang tiến hành sửa chữa',
+      completed: 'Đã sửa xong (chờ nhận)',
+      delivered: 'Đã hoàn thành & Bàn giao máy',
+      cancelled: 'Đã hủy phiếu'
+    };
+
+    logActivity('repair', 'Cập nhật trạng thái phiếu sửa chữa', `Mã phiếu: #${targetTicket?.ticketNumber || id} - Khách: ${targetTicket?.customerName || 'N/A'} -> Trạng thái: ${statusMap[status] || status}`, finalDetails?.actualCost, 'info');
+
     if (debtToSave) {
       setTimeout(() => {
         saveDebts([...debts, debtToSave!]);
@@ -538,10 +633,12 @@ export default function App() {
 
   const handleAddCustomer = (customer: Customer) => {
     saveCustomers([...customers, customer]);
+    logActivity('customer', 'Thêm khách hàng mới', `Tên: ${customer.name} - SĐT: ${customer.phone}`, undefined, 'info');
   };
 
   const handleEditCustomer = (customer: Customer) => {
     saveCustomers(customers.map(c => c.id === customer.id ? customer : c));
+    logActivity('customer', 'Cập nhật hồ sơ khách hàng', `Tên: ${customer.name} - SĐT: ${customer.phone}`, undefined, 'info');
   };
 
   return (
@@ -609,6 +706,7 @@ export default function App() {
                 <div className="space-y-1.5">
                   {[
                     { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
+                    { id: 'owner', label: 'Bảng Chủ Shop 👑', icon: Crown },
                     { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
                     { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
                     { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
@@ -618,7 +716,7 @@ export default function App() {
                     { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
                     { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
                     { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-                  ].filter(tab => !['accounts', 'printSettings'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
+                  ].filter(tab => !['accounts', 'printSettings', 'owner'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.id;
                     return (
@@ -694,6 +792,7 @@ export default function App() {
           <div className="space-y-2">
             {[
               { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
+              { id: 'owner', label: 'Bảng Chủ Shop 👑', icon: Crown },
               { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
               { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
               { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
@@ -703,7 +802,7 @@ export default function App() {
               { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
               { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
               { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-            ].filter(tab => !['accounts', 'printSettings'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
+            ].filter(tab => !['accounts', 'printSettings', 'owner'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
@@ -762,6 +861,7 @@ export default function App() {
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
               {activeTab === 'dashboard' && 'Bảng Điều Khiển Kinh Doanh'}
+              {activeTab === 'owner' && 'Bảng Giám Sát Chủ Cửa Hàng (Owner Dashboard)'}
               {activeTab === 'sales' && 'Giao Dịch Bán Hàng & Quản Lý Kho'}
               {activeTab === 'buildpc' && 'Tự Build Cấu Hình Máy Tính & Báo Giá'}
               {activeTab === 'repairs' && 'Tiếp Nhận & Sửa Chữa Thiết Bị'}
@@ -774,6 +874,7 @@ export default function App() {
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
               {activeTab === 'dashboard' && 'Báo cáo nhanh doanh số bán hàng, tình trạng sửa chữa thiết bị, dịch vụ bảo hành.'}
+              {activeTab === 'owner' && 'Theo dõi realtime đơn hàng đã bán trong ngày, thông báo doanh thu, lợi nhuận & hiệu suất nhân viên.'}
               {activeTab === 'sales' && 'Thiết lập giỏ nhận thanh toán hóa đơn nhanh, kích hoạt tự động thẻ bảo hành, điều chỉnh số tồn kho.'}
               {activeTab === 'buildpc' && 'Phối ráp CPU, RAM, ổ cứng, giá tùy chỉnh thực tế, bảo hành riêng lẻ và in báo giá.'}
               {activeTab === 'repairs' && 'Ghi chép tiếp quản máy hỏng kỹ thuật, tra cứu tự động nếu có bảo hành, bàn giao máy lưu kho.'}
@@ -786,31 +887,123 @@ export default function App() {
             </p>
           </div>
 
-          {/* Centralized LAN Server Sync Controller */}
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-xs shrink-0 self-start sm:self-center">
-            <span className="relative flex h-2 w-2">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dbLoading ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${dbLoading ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
-            </span>
-            <div className="text-left font-sans mr-2">
-              <p className="text-[10px] font-extrabold text-slate-700 leading-none">MÁY CHỦ TRUNG TÂM</p>
-              <p className="text-[8px] font-bold text-slate-400 mt-0.5 leading-none">LAN Database Connected</p>
-            </div>
-            <button
-              onClick={() => loadCentralData()}
-              disabled={isSyncing}
-              className={`p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition text-[10px] font-extrabold flex items-center gap-1 cursor-pointer select-none bg-slate-50 ${isSyncing ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <svg 
-                className={`w-3.5 h-3.5 text-slate-600 ${isSyncing ? 'animate-spin' : ''}`} 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
+          {/* Centralized LAN Server Sync Controller & Owner Notification Bell */}
+          <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-center">
+            {currentUser?.role === 'admin' && (
+              <div className="relative">
+                <button
+                  id="btn-owner-notification-bell"
+                  onClick={() => setShowNotifDropdown(!showNotifDropdown)}
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition cursor-pointer flex items-center gap-2 border border-slate-700 shadow-2xs relative"
+                  title="Thông báo thao tác nhân viên realtime"
+                >
+                  <div className="relative">
+                    <Bell className="w-4 h-4 text-amber-400" />
+                    {activities.filter(a => !a.readByOwner).length > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping" />
+                    )}
+                  </div>
+                  <span className="hidden sm:inline text-xs font-bold text-slate-100">Thông Báo Staff</span>
+                  {activities.filter(a => !a.readByOwner).length > 0 && (
+                    <span className="bg-rose-500 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                      {activities.filter(a => !a.readByOwner).length > 99 ? '99+' : activities.filter(a => !a.readByOwner).length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Floating Realtime Activity Notification Dropdown */}
+                <AnimatePresence>
+                  {showNotifDropdown && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border-2 border-slate-200 z-50 overflow-hidden"
+                    >
+                      <div className="p-3.5 bg-slate-900 text-white flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <Bell className="w-4 h-4 text-amber-400" />
+                          <h4 className="font-extrabold text-xs uppercase tracking-wider">Thao Tác Nhân Viên</h4>
+                        </div>
+                        {activities.filter(a => !a.readByOwner).length > 0 && (
+                          <button
+                            onClick={() => handleMarkLogRead()}
+                            className="text-[10px] text-amber-400 hover:underline font-bold cursor-pointer"
+                          >
+                            Đánh dấu đã đọc ({activities.filter(a => !a.readByOwner).length})
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1">
+                        {activities.length === 0 ? (
+                          <div className="p-6 text-center text-xs text-slate-400 font-medium">
+                            Chưa có thao tác mới nào từ nhân viên
+                          </div>
+                        ) : (
+                          activities.slice(0, 10).map(act => (
+                            <div
+                              key={act.id}
+                              onClick={() => handleMarkLogRead(act.id)}
+                              className={`p-3 rounded-xl transition cursor-pointer text-xs space-y-1 ${
+                                !act.readByOwner ? 'bg-amber-50/80 border-l-4 border-amber-500' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start gap-2">
+                                <span className="font-black text-slate-900 truncate">{act.userName}</span>
+                                <span className="text-[10px] text-slate-400 font-medium shrink-0">
+                                  {new Date(act.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className="font-bold text-slate-800">{act.title}</p>
+                              <p className="text-[11px] text-slate-500 leading-snug truncate">{act.details}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="p-2.5 bg-slate-50 border-t border-slate-100 text-center">
+                        <button
+                          onClick={() => {
+                            setActiveTab('owner');
+                            setShowNotifDropdown(false);
+                          }}
+                          className="text-xs font-bold text-indigo-600 hover:underline w-full cursor-pointer"
+                        >
+                          Xem toàn bộ nhật ký tại Bảng Chủ Shop 👑
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-xs">
+              <span className="relative flex h-2 w-2">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dbLoading ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${dbLoading ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+              </span>
+              <div className="text-left font-sans mr-2">
+                <p className="text-[10px] font-extrabold text-slate-700 leading-none">MÁY CHỦ TRUNG TÂM</p>
+                <p className="text-[8px] font-bold text-slate-400 mt-0.5 leading-none">LAN Database Connected</p>
+              </div>
+              <button
+                onClick={() => loadCentralData()}
+                disabled={isSyncing}
+                className={`p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition text-[10px] font-extrabold flex items-center gap-1 cursor-pointer select-none bg-slate-50 ${isSyncing ? 'opacity-50 pointer-events-none' : ''}`}
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6H16" />
-              </svg>
-              {isSyncing ? 'Đồng bộ...' : 'Đồng bộ'}
-            </button>
+                <svg 
+                  className={`w-3.5 h-3.5 text-slate-600 ${isSyncing ? 'animate-spin' : ''}`} 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6H16" />
+                </svg>
+                {isSyncing ? 'Đồng bộ...' : 'Đồng bộ'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -832,6 +1025,21 @@ export default function App() {
                 onNavigate={setActiveTab}
                 onQuickRepair={() => setActiveTab('repairs')}
                 onQuickInvoice={() => setActiveTab('sales')}
+              />
+            )}
+
+            {activeTab === 'owner' && currentUser?.role === 'admin' && (
+              <OwnerDashboard 
+                products={products}
+                invoices={invoices}
+                repairs={repairs}
+                debts={debts}
+                users={users}
+                imeis={imeis}
+                activities={activities}
+                onMarkLogRead={handleMarkLogRead}
+                onClearLogs={handleClearLogs}
+                onNavigate={setActiveTab}
               />
             )}
 
