@@ -112,14 +112,20 @@ export default function App() {
       if (payload.success && payload.db) {
         const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers, activities } = payload.db;
         const loadedImeis = imeis || [];
-        if (imeis && imeis.length > 0) setImeis(imeis);
-        if (products && products.length > 0) {
+        if (Array.isArray(imeis)) setImeis(imeis);
+        if (Array.isArray(products)) {
           const syncedProds = syncProductsStockWithImeis(products, loadedImeis);
           setProducts(syncedProds);
         }
-        if (debts && debts.length > 0) setDebts(debts);
-        if (suppliers && suppliers.length > 0) setSuppliers(suppliers);
-        if (activities && activities.length > 0) setActivities(activities);
+        if (Array.isArray(invoices)) setInvoices(invoices);
+        if (Array.isArray(customers)) setCustomers(customers);
+        if (Array.isArray(repairs)) setRepairs(repairs);
+        if (Array.isArray(warranties)) setWarranties(warranties);
+        if (Array.isArray(categories)) setCategories(categories);
+        if (Array.isArray(users)) setUsers(users);
+        if (Array.isArray(debts)) setDebts(debts);
+        if (Array.isArray(suppliers)) setSuppliers(suppliers);
+        if (Array.isArray(activities)) setActivities(activities);
         if (settings && settings.length > 0) {
           setPrintSettings(settings[0]);
         }
