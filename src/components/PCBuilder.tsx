@@ -110,51 +110,195 @@ export default function PCBuilder({
   const [printedQuoteInvoice, setPrintedQuoteInvoice] = useState<boolean>(false);
   const [savedBuildInvoice, setSavedBuildInvoice] = useState<SalesInvoice | null>(null);
 
-  // Filter products by active slot keyword and search text
-  const slotKeywordsMapping: Record<string, string[]> = {
-    cpu: ['cpu', 'intel', 'amd', 'ryzen', 'core i', 'vi xử lý'],
-    main: ['mainboard', 'bo mạch', 'h610', 'b760', 'b650', 'z790', 'asus', 'msi', 'gigabyte'],
-    ram: ['ram', 'bộ nhớ', 'ddr4', 'ddr5', 'kingston', 'corsair', 'g.skill'],
-    vga: ['vga', 'card', 'nvidia', 'rtx', 'gtx', 'radeon', 'rx '],
-    ssd: ['ssd', 'hdd', 'ổ cứng', 'nvme', 'sata', 'm2', 'samsung', 'kingston', 'crucial'],
-    psu: ['nguồn', 'psu', 'power', '650w', '750w', '850w', 'antec', 'cooler master'],
-    case: ['case', 'vỏ machine', 'vỏ máy', 'vỏ case', 'xigmatek', 'sama'],
-    fancase: ['fan', 'quạt', 'case fan'],
-    cooling: ['tản nhiệt', 'cooler', 'aio', 'tản khí', 'tản nước'],
-    monitor: ['màn hình', 'monitor', 'ips', 'gaming monitor', 'dell', 'lg', 'asus', 'msi'],
-    accessories: ['bàn phím', 'chuột', 'keyboard', 'mouse', 'tai nghe', 'lót chuột']
+  // Filter products by active slot matching rules and search text
+  const [showAllProducts, setShowAllProducts] = useState(false);
+
+  const isProductMatchingSlot = (p: Product, slotId: string): boolean => {
+    const name = p.name.toLowerCase();
+    const cat = (p.category || '').toLowerCase();
+
+    switch (slotId) {
+      case 'cpu': {
+        if (
+          name.includes('main') || name.includes('bo mạch') || name.includes('vga') || 
+          name.includes('card') || name.includes('ram') || name.includes('tản nhiệt') ||
+          name.includes('nguồn') || name.includes('psu') || name.includes('vỏ case') || name.includes('màn hình')
+        ) return false;
+
+        return (
+          cat.includes('cpu') || cat.includes('vi xử lý') || cat.includes('vi xu ly') || cat.includes('chip') ||
+          name.includes('cpu') || name.includes('intel') || name.includes('ryzen') || 
+          name.includes('core i') || name.includes('vi xử lý') || name.includes('pentium') ||
+          name.includes('celeron') || name.includes('xeon') || name.includes('athlon')
+        );
+      }
+
+      case 'main': {
+        if (
+          name.includes('vga') || name.includes('rtx') || name.includes('gtx') || 
+          name.includes('radeon') || name.includes('rx ') || name.includes('rx6') || name.includes('rx7') ||
+          name.includes('card màn hình') || name.includes('card đồ họa') || name.includes('card do hoa') ||
+          cat.includes('vga') || cat.includes('card') ||
+          name.includes('cpu') || name.includes('ryzen') || name.includes('core i3') || name.includes('core i5') || name.includes('core i7') || name.includes('core i9') ||
+          (name.includes('ram') && !name.includes('ddr')) ||
+          name.includes('ssd') || name.includes('hdd') || name.includes('nvme') ||
+          name.includes('nguồn') || name.includes('psu') || name.includes('màn hình') || name.includes('monitor')
+        ) return false;
+
+        return (
+          cat.includes('main') || cat.includes('bo mạch') || cat.includes('bo mach') || cat.includes('motherboard') ||
+          name.includes('mainboard') || name.includes('bo mạch') || name.includes('bo mach') || name.includes('motherboard') ||
+          name.includes('main ') || name.startsWith('main ') || name.startsWith('mainboard') ||
+          name.includes('h610') || name.includes('b760') || name.includes('b650') || name.includes('z790') || 
+          name.includes('z690') || name.includes('b550') || name.includes('b450') || name.includes('a520') || 
+          name.includes('a620') || name.includes('x670') || name.includes('h510') || name.includes('h410') || 
+          name.includes('b365') || name.includes('b360') || name.includes('h310') || name.includes('b660') ||
+          name.includes('z890') || name.includes('b860')
+        );
+      }
+
+      case 'ram': {
+        if (
+          name.includes('vga') || name.includes('rtx') || name.includes('gtx') || name.includes('rx ') ||
+          name.includes('mainboard') || name.includes('bo mạch') || name.includes('ssd') || name.includes('màn hình')
+        ) return false;
+
+        return (
+          cat.includes('ram') || cat.includes('bộ nhớ') || cat.includes('bo nho') ||
+          name.includes('ram') || name.includes('bộ nhớ') || name.includes('ddr4') || name.includes('ddr5') ||
+          name.includes('ddr3') || name.includes('bus 3200') || name.includes('bus 3600') || name.includes('bus 5600')
+        );
+      }
+
+      case 'vga': {
+        if (
+          name.includes('mainboard') || name.includes('bo mạch') || name.includes('cpu') || 
+          name.includes('ssd') || name.includes('hdd') || name.includes('nguồn') || name.includes('psu')
+        ) return false;
+
+        return (
+          cat.includes('vga') || cat.includes('card') || cat.includes('đồ họa') || cat.includes('do hoa') ||
+          name.includes('vga') || name.includes('card màn hình') || name.includes('card đồ họa') || 
+          name.includes('rtx') || name.includes('gtx') || name.includes('radeon') || name.includes('rx ') || 
+          name.includes('rx6') || name.includes('rx7') || name.includes('rx5') || name.includes('geforce') ||
+          name.includes('quadro') || name.includes('arc a') || name.includes('gt 1030') || name.includes('gt 730')
+        );
+      }
+
+      case 'ssd': {
+        if (
+          name.includes('ram') || name.includes('vga') || name.includes('rtx') || name.includes('mainboard') || 
+          name.includes('cpu') || name.includes('màn hình') || name.includes('chuột') || name.includes('bàn phím')
+        ) return false;
+
+        return (
+          cat.includes('ssd') || cat.includes('hdd') || cat.includes('ổ cứng') || cat.includes('o cung') || cat.includes('lưu trữ') ||
+          name.includes('ssd') || name.includes('hdd') || name.includes('ổ cứng') || name.includes('o cung') || 
+          name.includes('nvme') || name.includes('sata') || name.includes('m.2') || name.includes('m2')
+        );
+      }
+
+      case 'psu': {
+        if (
+          name.includes('vga') || name.includes('rtx') || name.includes('mainboard') || name.includes('cpu') || name.includes('vỏ case')
+        ) return false;
+
+        return (
+          cat.includes('nguồn') || cat.includes('nguon') || cat.includes('psu') || cat.includes('power') ||
+          name.includes('nguồn') || name.includes('nguon') || name.includes('psu') || name.includes('power supply') ||
+          /\b(450w|500w|550w|600w|650w|700w|750w|800w|850w|1000w|1200w)\b/i.test(name)
+        );
+      }
+
+      case 'case': {
+        if (
+          name.includes('fan case') || name.includes('quạt case') || name.includes('tản nhiệt') || name.includes('nguồn') || name.includes('vga')
+        ) return false;
+
+        return (
+          cat.includes('case') || cat.includes('vỏ') || cat.includes('vo may') || cat.includes('thùng') ||
+          name.includes('vỏ case') || name.includes('vo case') || name.includes('vỏ máy') || name.includes('vo may') || 
+          name.includes('case') || name.includes('chassis') || name.includes('thùng máy')
+        );
+      }
+
+      case 'fancase': {
+        if (name.includes('tản nhiệt cpu') || name.includes('aio') || name.includes('tản khí') || name.includes('vỏ case')) return false;
+
+        return (
+          cat.includes('fan') || cat.includes('quạt') || cat.includes('quat') ||
+          name.includes('fan case') || name.includes('quạt case') || name.includes('quat case') || 
+          name.includes('fan 12cm') || name.includes('fan 14cm') || name.includes('fan argb') || name.includes('fan rgb') ||
+          name.includes('pack 3 fan') || name.includes('pack 5 fan') || name.includes('fan ')
+        );
+      }
+
+      case 'cooling': {
+        if (name.includes('fan case') || name.includes('quạt case') || name.includes('vỏ case') || name.includes('mainboard')) return false;
+
+        return (
+          cat.includes('tản') || cat.includes('tan') || cat.includes('cooler') || cat.includes('cooling') ||
+          name.includes('tản nhiệt') || name.includes('tan nhiet') || name.includes('cooler') || 
+          name.includes('aio') || name.includes('tản khí') || name.includes('tản nước') || name.includes('liquid cooling')
+        );
+      }
+
+      case 'monitor': {
+        if (
+          name.includes('card màn hình') || name.includes('card man hinh') || name.includes('vga') || 
+          name.includes('rtx') || name.includes('gtx') || name.includes('radeon')
+        ) return false;
+
+        return (
+          cat.includes('màn hình') || cat.includes('man hinh') || cat.includes('monitor') || cat.includes('display') ||
+          (name.includes('màn hình') && !name.includes('card')) || name.includes('man hinh') || name.includes('monitor') || 
+          /\b(22|24|27|32|34)\s*inch\b/i.test(name) || /\b(144hz|165hz|180hz|240hz)\b/i.test(name)
+        );
+      }
+
+      case 'accessories': {
+        if (name.includes('màn hình') || name.includes('vga') || name.includes('mainboard') || name.includes('cpu')) return false;
+
+        return (
+          cat.includes('phím') || cat.includes('chuột') || cat.includes('tai nghe') || cat.includes('phụ kiện') || cat.includes('gear') ||
+          name.includes('bàn phím') || name.includes('keyboard') || name.includes('chuột') || name.includes('mouse') || 
+          name.includes('tai nghe') || name.includes('headset') || name.includes('lót chuột') || name.includes('pad chuột') || name.includes('webcam')
+        );
+      }
+
+      default:
+        return true;
+    }
   };
 
   const filteredProductsToChoose = useMemo(() => {
     if (!activeSlotId) return [];
     
-    // Keyword based filter
-    const keywords = slotKeywordsMapping[activeSlotId] || [];
-    let slotProducts = products.filter(p => {
-      const nameLower = p.name.toLowerCase();
-      const catLower = p.category.toLowerCase();
-      return keywords.some(k => nameLower.includes(k) || catLower.includes(k));
+    // Filter available in-stock items
+    const availableProducts = products.filter(p => {
+      const available = p.hasImei ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length : p.stock;
+      return available > 0;
     });
 
-    // Fallback: if keyword filter finds nothing, show all products
-    if (slotProducts.length === 0) {
-      slotProducts = products;
+    let slotProducts = availableProducts;
+    if (!showAllProducts) {
+      slotProducts = availableProducts.filter(p => isProductMatchingSlot(p, activeSlotId));
+      if (slotProducts.length === 0) {
+        slotProducts = availableProducts;
+      }
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       slotProducts = slotProducts.filter(p => 
         p.name.toLowerCase().includes(q) || 
-        p.sku.toLowerCase().includes(q)
+        p.sku.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q)
       );
     }
 
-    // Always exclude out of stock items
-    return slotProducts.filter(p => {
-      const available = p.hasImei ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length : p.stock;
-      return available > 0;
-    });
-  }, [products, imeis, activeSlotId, searchQuery]);
+    return slotProducts;
+  }, [products, imeis, activeSlotId, searchQuery, showAllProducts]);
 
   // Money format
   const formatVND = (value: number) => {
@@ -176,6 +320,7 @@ export default function PCBuilder({
   const handleOpenPicker = (slotId: string) => {
     setActiveSlotId(slotId);
     setSearchQuery('');
+    setShowAllProducts(false);
     setUseCustomWriteIn(false);
     setManualName('');
     setManualPrice('');
@@ -786,6 +931,23 @@ export default function PCBuilder({
                       onChange={e => setSearchQuery(e.target.value)}
                       className="w-full text-xs bg-slate-50 border border-slate-100 pl-10 pr-4 py-2.5 rounded-xl focus:outline-hidden"
                     />
+                  </div>
+
+                  {/* Category Filter Mode Status Bar */}
+                  <div className="flex items-center justify-between text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 shrink-0">
+                    <div className="flex items-center gap-1.5 text-slate-600 font-medium truncate">
+                      <span className="text-[10px] uppercase font-bold text-slate-400">Bộ lọc:</span>
+                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md text-[11px]">
+                        {showAllProducts ? '🌐 Tất cả sản phẩm' : `🎯 ${DEFAULT_SLOTS.find(s => s.id === activeSlotId)?.name || 'Chuẩn danh mục'}`}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllProducts(!showAllProducts)}
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 cursor-pointer px-2.5 py-1 rounded-lg border border-indigo-200 shrink-0 transition"
+                    >
+                      {showAllProducts ? '🎯 Lọc đúng danh mục' : '🌐 Hiển thị tất cả sản phẩm'}
+                    </button>
                   </div>
 
                   {/* List results scroll */}

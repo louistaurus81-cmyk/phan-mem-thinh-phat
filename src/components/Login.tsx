@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { KeyRound, User as UserIcon, LogIn, ShieldCheck } from 'lucide-react';
+import { KeyRound, User as UserIcon, LogIn } from 'lucide-react';
+import TPLogo from './TPLogo';
 
 interface LoginProps {
   users: User[];
@@ -42,8 +43,8 @@ export default function Login({ users, onLoginSuccess }: LoginProps) {
         
         {/* Logo and Brand Title Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex p-3 bg-blue-600 rounded-2xl border border-blue-500 shadow-lg text-white mx-auto mb-2 animate-pulse">
-            <ShieldCheck className="w-6 h-6" />
+          <div className="inline-flex p-3 bg-white rounded-2xl border border-slate-100 shadow-xl mx-auto mb-2">
+            <TPLogo className="w-12 h-12" />
           </div>
           <h2 className="text-2xl font-extrabold tracking-tight text-white uppercase">THỊNH PHÁT COMPUTER</h2>
           <p className="text-xs text-slate-400 max-w-xs mx-auto">Vui lòng đăng nhập bằng mã tài khoản nhân viên để tiếp quản hệ thống</p>

@@ -36,13 +36,13 @@ import Login from './components/Login';
 import AccountManager from './components/AccountManager';
 import PrintSettingsManager from './components/PrintSettingsManager';
 import OwnerDashboard from './components/OwnerDashboard';
+import TPLogo from './components/TPLogo';
 import { 
   LayoutDashboard, 
   ShoppingBag, 
   Wrench, 
   ShieldCheck, 
   Users, 
-  Wrench as LogoIcon,
   UserCog,
   LogOut,
   Menu,
@@ -833,8 +833,8 @@ export default function App() {
       {/* 1. MOBILE BRAND HEADER CARD (Bento style, only visible on mobile) */}
       <div className="flex md:hidden items-center justify-between bg-slate-900 text-white rounded-2xl border border-slate-850 p-4 shadow-md">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-600 rounded-xl">
-            <LogoIcon className="w-4 h-4 text-white" />
+          <div className="p-1.5 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0">
+            <TPLogo className="w-8 h-8 shrink-0" />
           </div>
           <div>
             <h2 className="font-extrabold text-sm tracking-tight leading-none uppercase text-white">THỊNH PHÁT</h2>
@@ -873,8 +873,8 @@ export default function App() {
               <div>
                 <div className="flex items-center justify-between pb-5 border-b border-slate-850 mb-6">
                   <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-blue-600 rounded-xl">
-                      <LogoIcon className="w-4 h-4 text-white" />
+                    <div className="p-1.5 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0">
+                      <TPLogo className="w-7 h-7 shrink-0" />
                     </div>
                     <div>
                       <h2 className="font-extrabold text-xs tracking-wider leading-none uppercase text-white">THỊNH PHÁT</h2>
@@ -965,8 +965,8 @@ export default function App() {
       <nav className="hidden md:flex w-full md:w-64 bg-slate-900 text-white shrink-0 rounded-[2rem] border-2 border-slate-850 p-2 flex-col justify-between bento-shadow">
         <div className="p-5">
           <div className="flex items-center gap-3 mb-8 px-2 py-1">
-            <div className="p-2.5 bg-blue-600 rounded-2xl border border-blue-500 shadow-sm">
-              <LogoIcon className="w-5 h-5 text-white" />
+            <div className="p-2 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center shrink-0">
+              <TPLogo className="w-8 h-8 shrink-0" />
             </div>
             <div>
               <h2 className="font-extrabold text-[13px] tracking-wider leading-none uppercase text-white">THỊNH PHÁT</h2>
