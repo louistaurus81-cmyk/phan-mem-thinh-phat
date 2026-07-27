@@ -111,14 +111,12 @@ export default function App() {
       const payload = await res.json();
       if (payload.success && payload.db) {
         const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers, activities } = payload.db;
-        if (products && products.length > 0) setProducts(products);
-        if (customers && customers.length > 0) setCustomers(customers);
-        if (invoices && invoices.length > 0) setInvoices(invoices);
-        if (repairs && repairs.length > 0) setRepairs(repairs);
-        if (warranties && warranties.length > 0) setWarranties(warranties);
-        if (categories && categories.length > 0) setCategories(categories);
-        if (users && users.length > 0) setUsers(users);
+        const loadedImeis = imeis || [];
         if (imeis && imeis.length > 0) setImeis(imeis);
+        if (products && products.length > 0) {
+          const syncedProds = syncProductsStockWithImeis(products, loadedImeis);
+          setProducts(syncedProds);
+        }
         if (debts && debts.length > 0) setDebts(debts);
         if (suppliers && suppliers.length > 0) setSuppliers(suppliers);
         if (activities && activities.length > 0) setActivities(activities);
@@ -202,16 +200,37 @@ export default function App() {
     syncWithServer('settings', [newSettings]);
   };
 
+  const syncProductsStockWithImeis = (prods: Product[], ims: ProductIMEI[]): Product[] => {
+    return prods.map(p => {
+      if (p.hasImei) {
+        const count = ims.filter(i => i.productId === p.id && i.status === 'in_stock').length;
+        if (p.stock !== count) {
+          return { ...p, stock: count };
+        }
+      }
+      return p;
+    });
+  };
+
   const saveProducts = (newProds: Product[]) => {
-    setProducts(newProds);
-    localStorage.setItem('thinhphat_v2_products', JSON.stringify(newProds));
-    syncWithServer('products', newProds);
+    const synced = syncProductsStockWithImeis(newProds, imeis);
+    setProducts(synced);
+    localStorage.setItem('thinhphat_v2_products', JSON.stringify(synced));
+    syncWithServer('products', synced);
   };
 
   const saveImeis = (newImeis: ProductIMEI[]) => {
     setImeis(newImeis);
     localStorage.setItem('thinhphat_v2_imeis', JSON.stringify(newImeis));
     syncWithServer('imeis', newImeis);
+
+    // Synchronize product stock for products with hasImei
+    setProducts(prevProducts => {
+      const synced = syncProductsStockWithImeis(prevProducts, newImeis);
+      localStorage.setItem('thinhphat_v2_products', JSON.stringify(synced));
+      syncWithServer('products', synced);
+      return synced;
+    });
   };
 
   const saveCustomers = (newCusts: Customer[]) => {
@@ -518,6 +537,113 @@ export default function App() {
     if (updatedWarranties.length > warranties.length) {
       saveWarranties(updatedWarranties);
     }
+  };
+
+  const handleUpdateInvoice = (updatedInvoice: SalesInvoice) => {
+    const oldInvoice = invoices.find(inv => inv.id === updatedInvoice.id);
+    if (!oldInvoice) return;
+
+    let updatedProducts = [...products];
+    let updatedImeis = [...imeis];
+
+    // Revert old items stock & IMEIs
+    oldInvoice.items.forEach(item => {
+      const prod = updatedProducts.find(p => p.id === item.productId);
+      if (prod) {
+        if (!prod.hasImei) {
+          prod.stock += item.quantity;
+        }
+        if (prod.hasImei && item.imeis && item.imeis.length > 0) {
+          item.imeis.forEach(im => {
+            const idx = updatedImeis.findIndex(i => i.productId === prod.id && i.imei === im);
+            if (idx > -1) {
+              updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
+            }
+          });
+        }
+      }
+    });
+
+    // Deduct new items stock & IMEIs
+    updatedInvoice.items.forEach(item => {
+      const prod = updatedProducts.find(p => p.id === item.productId);
+      if (prod) {
+        if (!prod.hasImei) {
+          prod.stock = Math.max(0, prod.stock - item.quantity);
+        }
+        if (prod.hasImei && item.imeis && item.imeis.length > 0) {
+          item.imeis.forEach(im => {
+            const idx = updatedImeis.findIndex(i => i.productId === prod.id && i.imei === im);
+            if (idx > -1) {
+              updatedImeis[idx] = { ...updatedImeis[idx], status: 'sold', invoiceId: updatedInvoice.id };
+            }
+          });
+        }
+      }
+    });
+
+    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
+
+    saveProducts(updatedProducts);
+    saveImeis(updatedImeis);
+
+    const nextInvoices = invoices.map(inv => inv.id === updatedInvoice.id ? updatedInvoice : inv);
+    saveInvoices(nextInvoices);
+
+    logActivity(
+      'sale',
+      'Chỉnh sửa hóa đơn bán hàng',
+      `Cập nhật thông tin hóa đơn ${updatedInvoice.invoiceNumber} (${updatedInvoice.customerName}) - Tổng tiền: ${updatedInvoice.totalAmount.toLocaleString('vi-VN')}đ`,
+      updatedInvoice.totalAmount,
+      'warning'
+    );
+  };
+
+  const handleDeleteInvoice = (invoiceId: string) => {
+    const targetInvoice = invoices.find(inv => inv.id === invoiceId);
+    if (!targetInvoice) return;
+
+    let updatedProducts = [...products];
+    let updatedImeis = [...imeis];
+
+    // Revert stock & IMEIs
+    targetInvoice.items.forEach(item => {
+      const prod = updatedProducts.find(p => p.id === item.productId);
+      if (prod) {
+        if (!prod.hasImei) {
+          prod.stock += item.quantity;
+        }
+        if (prod.hasImei && item.imeis && item.imeis.length > 0) {
+          item.imeis.forEach(im => {
+            const idx = updatedImeis.findIndex(i => i.productId === prod.id && i.imei === im);
+            if (idx > -1) {
+              updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
+            }
+          });
+        }
+      }
+    });
+
+    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
+
+    saveProducts(updatedProducts);
+    saveImeis(updatedImeis);
+
+    const nextInvoices = invoices.filter(inv => inv.id !== invoiceId);
+    saveInvoices(nextInvoices);
+
+    if (targetInvoice.debtAmount && targetInvoice.debtAmount > 0) {
+      const nextDebts = debts.filter(d => !(d.customerId === targetInvoice.customerId && d.createdAt === targetInvoice.createdAt));
+      saveDebts(nextDebts);
+    }
+
+    logActivity(
+      'sale',
+      'Xóa hóa đơn bán hàng',
+      `Đã xóa vĩnh viễn hóa đơn ${targetInvoice.invoiceNumber} (${targetInvoice.customerName}) - Hoàn trả tồn kho`,
+      targetInvoice.totalAmount,
+      'danger'
+    );
   };
 
   const handleAddRepair = (ticket: RepairTicket) => {
@@ -1066,6 +1192,8 @@ export default function App() {
                 onDeleteProduct={handleDeleteProduct}
                 onUpdateProductStock={handleUpdateProductStock}
                 onAddInvoice={handleAddInvoice}
+                onUpdateInvoice={handleUpdateInvoice}
+                onDeleteInvoice={handleDeleteInvoice}
                 onAddCustomer={handleAddCustomer}
                 onAddCategory={handleAddCategory}
                 onUpdateCategory={handleUpdateCategory}

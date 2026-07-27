@@ -101,6 +101,8 @@ export interface UserPermissions {
   canManageSuppliers?: boolean;  // Quản lý nhà cung cấp
   canViewReports?: boolean;      // Xem báo cáo doanh thu & lợi nhuận
   canManageSettings?: boolean;   // Cài đặt mẫu in & hệ thống
+  canEditInvoices?: boolean;     // Sửa hóa đơn đã tạo
+  canDeleteInvoices?: boolean;   // Xóa hóa đơn đã tạo
 }
 
 export interface User {
@@ -127,6 +129,8 @@ export function getUserPermissions(user: User | null): Required<UserPermissions>
       canManageSuppliers: false,
       canViewReports: false,
       canManageSettings: false,
+      canEditInvoices: false,
+      canDeleteInvoices: false,
     };
   }
 
@@ -143,6 +147,8 @@ export function getUserPermissions(user: User | null): Required<UserPermissions>
       canManageSuppliers: true,
       canViewReports: true,
       canManageSettings: true,
+      canEditInvoices: true,
+      canDeleteInvoices: true,
     };
   }
 
@@ -161,6 +167,8 @@ export function getUserPermissions(user: User | null): Required<UserPermissions>
     canManageSuppliers: p.canManageSuppliers ?? false,
     canViewReports: p.canViewReports ?? false,
     canManageSettings: p.canManageSettings ?? false,
+    canEditInvoices: p.canEditInvoices ?? false,
+    canDeleteInvoices: p.canDeleteInvoices ?? false,
   };
 }
 

@@ -15,6 +15,8 @@ const PERMISSION_CONFIG_LIST: { key: keyof UserPermissions; label: string; desc:
   { key: 'canManageInventory', label: 'Quản lý tồn kho & Sản phẩm', desc: 'Quyền thêm mới và sửa thông tin sản phẩm, linh kiện hoặc danh mục' },
   { key: 'canEditStock', label: 'Chỉnh sửa số lượng & Xóa SP/Danh mục', desc: 'Tăng/giảm số lượng tồn kho, xóa vĩnh viễn sản phẩm hoặc danh mục' },
   { key: 'canManageSales', label: 'Bán hàng & Tạo hóa đơn POS', desc: 'Tạo hóa đơn thanh toán, bán linh kiện & xuất file báo giá' },
+  { key: 'canEditInvoices', label: 'Chỉnh sửa hóa đơn bán hàng', desc: 'Cho phép thay đổi thông tin, khách hàng, mặt hàng trên hóa đơn đã lập' },
+  { key: 'canDeleteInvoices', label: 'Xóa hóa đơn bán hàng', desc: 'Cho phép xóa vĩnh viễn hóa đơn đã lập và hoàn trả tồn kho sản phẩm' },
   { key: 'canManageRepairs', label: 'Tiếp nhận & Sửa chữa', desc: 'Ghi phiếu nhận máy hỏng, cập nhật tiến độ & hoàn thành sửa' },
   { key: 'canManageWarranty', label: 'Quản lý thẻ bảo hành', desc: 'Cấp mới & tra cứu thẻ bảo hành cho khách hàng' },
   { key: 'canManageCustomers', label: 'Quản lý thông tin khách hàng', desc: 'Thêm, sửa & xem lịch sử mua sắm khách hàng CRM' },

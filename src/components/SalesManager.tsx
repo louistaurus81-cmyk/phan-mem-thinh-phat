@@ -38,6 +38,8 @@ interface SalesManagerProps {
   onDeleteProduct: (id: string) => void;
   onUpdateProductStock: (id: string, newStock: number) => void;
   onAddInvoice: (invoice: SalesInvoice) => void;
+  onUpdateInvoice?: (invoice: SalesInvoice) => void;
+  onDeleteInvoice?: (id: string) => void;
   onAddCustomer: (customer: Customer) => void;
   onAddCategory: (name: string) => void;
   onUpdateCategory: (id: string, name: string) => void;
@@ -60,6 +62,8 @@ export default function SalesManager({
   onDeleteProduct,
   onUpdateProductStock,
   onAddInvoice,
+  onUpdateInvoice,
+  onDeleteInvoice,
   onAddCustomer,
   onAddCategory,
   onUpdateCategory,
@@ -143,14 +147,20 @@ export default function SalesManager({
   // Modal for looking at invoice details
   const [activeInvoiceDetails, setActiveInvoiceDetails] = useState<SalesInvoice | null>(null);
   
-  // IMEI Management State
+  // IMEI Selection & Multi-select State
   const [managingImeisFor, setManagingImeisFor] = useState<Product | null>(null);
   const [selectingImeiFor, setSelectingImeiFor] = useState<Product | null>(null);
+  const [selectedImeisForCart, setSelectedImeisForCart] = useState<string[]>([]);
+  const [imeiSearchFilter, setImeiSearchFilter] = useState('');
   const [imeiInput, setImeiInput] = useState('');
   const [printingBarcode, setPrintingBarcode] = useState<{ productName: string; code: string } | null>(null);
   const [deletingImeiId, setDeletingImeiId] = useState<string | null>(null);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
+
+  // Edit & Delete Invoice state
+  const [editingInvoice, setEditingInvoice] = useState<SalesInvoice | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState<SalesInvoice | null>(null);
 
   // Global Barcode Scanner Listener
   useBarcodeScanner((barcode) => {
@@ -218,11 +228,13 @@ export default function SalesManager({
   };
 
   // Cart operations
-  const addToCart = (product: Product, imeiToBind?: string) => {
-    if (product.hasImei && !imeiToBind) {
+  const addToCart = (product: Product, imeiToBind?: string | string[]) => {
+    if (product.hasImei && (!imeiToBind || (Array.isArray(imeiToBind) && imeiToBind.length === 0))) {
       alert(`Sản phẩm này cần được chọn/quét theo IMEI cụ thể chứ không thêm vào số lượng chung.`);
       return;
     }
+
+    const imeisArr = Array.isArray(imeiToBind) ? imeiToBind : (imeiToBind ? [imeiToBind] : []);
 
     const availableStock = product.hasImei 
       ? imeis.filter(i => i.productId === product.id && i.status === 'in_stock').length 
@@ -232,15 +244,46 @@ export default function SalesManager({
     
     setCart(prevCart => {
       const existing = prevCart.find(item => item.productId === product.id);
-      const currentQtyInCart = existing ? existing.quantity : 0;
+      const currentImeis = existing?.imeis || [];
       
-      // Prevent adding the same IMEI twice
-      if (imeiToBind && existing && existing.imeis?.includes(imeiToBind)) {
-        alert('Mã IMEI/Serial này đã có trong giỏ hàng!');
-        return prevCart;
+      if (product.hasImei && imeisArr.length > 0) {
+        // Filter out IMEIs already present in cart
+        const newImeisToAdd = imeisArr.filter(im => !currentImeis.includes(im));
+        if (newImeisToAdd.length === 0) {
+          alert('Các mã IMEI/Serial chọn đều đã có sẵn trong giỏ hàng!');
+          return prevCart;
+        }
+
+        const updatedImeisList = [...currentImeis, ...newImeisToAdd];
+        if (updatedImeisList.length > availableStock) {
+          alert(`Không thể thêm! Chỉ còn ${availableStock} sản phẩm trong kho.`);
+          return prevCart;
+        }
+
+        if (existing) {
+          return prevCart.map(item => 
+            item.productId === product.id 
+              ? { 
+                  ...item, 
+                  quantity: updatedImeisList.length,
+                  imeis: updatedImeisList
+                }
+              : item
+          );
+        } else {
+          return [...prevCart, {
+            productId: product.id,
+            productName: product.name,
+            quantity: updatedImeisList.length,
+            price: product.price,
+            warrantyMonths: product.warrantyMonths,
+            imeis: updatedImeisList
+          }];
+        }
       }
-      
-      // Stock boundary check
+
+      // Non-IMEI product handling
+      const currentQtyInCart = existing ? existing.quantity : 0;
       if (currentQtyInCart >= availableStock) {
         alert(`Không thể thêm thêm! Chỉ còn ${availableStock} sản phẩm trong kho.`);
         return prevCart;
@@ -249,11 +292,7 @@ export default function SalesManager({
       if (existing) {
         return prevCart.map(item => 
           item.productId === product.id 
-            ? { 
-                ...item, 
-                quantity: item.quantity + 1,
-                imeis: imeiToBind ? [...(item.imeis || []), imeiToBind] : item.imeis
-              }
+            ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       } else {
@@ -263,7 +302,7 @@ export default function SalesManager({
           quantity: 1,
           price: product.price,
           warrantyMonths: product.warrantyMonths,
-          imeis: imeiToBind ? [imeiToBind] : []
+          imeis: []
         }];
       }
     });
@@ -387,7 +426,8 @@ export default function SalesManager({
     // Double check inventory bounds
     for (const item of cart) {
       const prod = products.find(p => p.id === item.productId);
-      if (!prod || prod.stock < item.quantity) {
+      const availableStock = prod ? (prod.hasImei ? imeis.filter(i => i.productId === prod.id && i.status === 'in_stock').length : prod.stock) : 0;
+      if (!prod || availableStock < item.quantity) {
         alert(`Sản phẩm ${item.productName} không đủ tồn kho để thực hiện giao dịch!`);
         return;
       }
@@ -1094,13 +1134,36 @@ export default function SalesManager({
                     </td>
                     <td className="py-3 font-bold text-slate-900">{formatVND(inv.totalAmount)}</td>
                     <td className="py-3 text-right">
-                      <button 
-                        id={`btn-open-invoice-${inv.id}`}
-                        onClick={() => setActiveInvoiceDetails(inv)}
-                        className="text-xs font-semibold text-slate-500 hover:text-indigo-600 p-1 cursor-pointer"
-                      >
-                        <ChevronRight className="w-4 h-4 ml-auto" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        {userPerms.canEditInvoices && onUpdateInvoice && (
+                          <button 
+                            id={`btn-edit-invoice-${inv.id}`}
+                            onClick={() => setEditingInvoice(inv)}
+                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            title="Chỉnh sửa hóa đơn"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        )}
+                        {userPerms.canDeleteInvoices && onDeleteInvoice && (
+                          <button 
+                            id={`btn-delete-invoice-${inv.id}`}
+                            onClick={() => setDeletingInvoice(inv)}
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="Xóa hóa đơn"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button 
+                          id={`btn-open-invoice-${inv.id}`}
+                          onClick={() => setActiveInvoiceDetails(inv)}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                          title="Xem chi tiết"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -2070,23 +2133,43 @@ export default function SalesManager({
                 </div>
               </div>
  
-              <div className="pt-4 flex gap-3 justify-between items-center mt-4 border-t border-slate-100">
-                <button 
-                  type="button"
-                  onClick={() => {
-                    const printC = document.getElementById('print-retail-invoice-section')?.innerHTML;
-                    const originalC = document.body.innerHTML;
-                    if (printC) {
-                      document.body.innerHTML = printC;
-                      window.print();
-                      document.body.innerHTML = originalC;
-                      window.location.reload();
-                    }
-                  }}
-                  className="px-4 py-2 bg-slate-950 hover:bg-slate-850 text-white font-extrabold text-xs rounded-xl cursor-pointer"
-                >
-                  🖨️ In Hóa Đơn Bán Hàng
-                </button>
+              <div className="pt-4 flex flex-wrap gap-2 justify-between items-center mt-4 border-t border-slate-100">
+                <div className="flex gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const printC = document.getElementById('print-retail-invoice-section')?.innerHTML;
+                      const originalC = document.body.innerHTML;
+                      if (printC) {
+                        document.body.innerHTML = printC;
+                        window.print();
+                        document.body.innerHTML = originalC;
+                        window.location.reload();
+                      }
+                    }}
+                    className="px-3.5 py-2 bg-slate-950 hover:bg-slate-850 text-white font-extrabold text-xs rounded-xl cursor-pointer"
+                  >
+                    🖨️ In Hóa Đơn
+                  </button>
+                  {userPerms.canEditInvoices && onUpdateInvoice && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingInvoice(activeInvoiceDetails)}
+                      className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 font-extrabold text-xs rounded-xl cursor-pointer border border-amber-200 transition flex items-center gap-1"
+                    >
+                      <Edit className="w-3.5 h-3.5" /> Sửa
+                    </button>
+                  )}
+                  {userPerms.canDeleteInvoices && onDeleteInvoice && (
+                    <button
+                      type="button"
+                      onClick={() => setDeletingInvoice(activeInvoiceDetails)}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 font-extrabold text-xs rounded-xl cursor-pointer border border-rose-200 transition flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Xóa
+                    </button>
+                  )}
+                </div>
                 <button 
                   onClick={() => setActiveInvoiceDetails(null)}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer border border-slate-250 transition"
@@ -2323,37 +2406,415 @@ export default function SalesManager({
         )}
       </AnimatePresence>
 
-      {/* IMEI Selector Modal */}
+      {/* Multi-Select IMEI Selector Modal */}
       <AnimatePresence>
         {selectingImeiFor && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setSelectingImeiFor(null)} />
+            <div 
+              className="absolute inset-0 bg-black/60 backdrop-blur-xs" 
+              onClick={() => {
+                setSelectingImeiFor(null);
+                setSelectedImeisForCart([]);
+              }} 
+            />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-lg z-10"
+              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-xl z-10 border border-slate-100 flex flex-col max-h-[85vh]"
             >
-              <div className="flex justify-between items-center mb-4">
-                 <h2 className="text-lg font-bold">Chọn IMEI cho {selectingImeiFor.name}</h2>
-                 <button onClick={() => setSelectingImeiFor(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+              {/* Header */}
+              <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <QrCode className="w-5 h-5 text-indigo-600" />
+                    <h2 className="text-base font-bold text-slate-900">Chọn IMEI/Serial bán hàng</h2>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">{selectingImeiFor.name}</p>
+                </div>
+                <button 
+                  onClick={() => {
+                    setSelectingImeiFor(null);
+                    setSelectedImeisForCart([]);
+                  }} 
+                  className="p-1 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer"
+                >
+                  <X className="w-5 h-5"/>
+                </button>
               </div>
-              <div className="max-h-80 overflow-y-auto space-y-2">
-                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').map(i => (
-                  <button
-                    key={i.id}
-                    onClick={() => {
-                      addToCart(selectingImeiFor, i.imei);
-                      setSelectingImeiFor(null);
-                    }}
-                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 transition"
-                  >
-                    <span className="font-mono font-bold text-slate-800">{i.imei}</span>
-                  </button>
-                ))}
-                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').length === 0 && (
-                  <p className="text-center text-slate-500 py-4">Không có IMEI nào đang sẵn kho.</p>
-                )}
+
+              {/* Filter & Quick Actions */}
+              {(() => {
+                const availableImeis = imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock');
+                const filtered = availableImeis.filter(i => i.imei.toLowerCase().includes(imeiSearchFilter.trim().toLowerCase()));
+
+                return (
+                  <>
+                    <div className="space-y-3 mb-3">
+                      <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Lọc số IMEI / Serial..."
+                          value={imeiSearchFilter}
+                          onChange={e => setImeiSearchFilter(e.target.value)}
+                          className="w-full text-xs bg-slate-50 border border-slate-200 pl-9 pr-3 py-2.5 rounded-xl focus:outline-hidden focus:border-indigo-500 font-mono"
+                          autoFocus
+                        />
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const allIds = filtered.map(i => i.imei);
+                              const combined = Array.from(new Set([...selectedImeisForCart, ...allIds]));
+                              setSelectedImeisForCart(combined);
+                            }}
+                            className="px-2.5 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold rounded-lg text-[11px] transition"
+                          >
+                            ✓ Chọn tất cả ({filtered.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedImeisForCart([])}
+                            className="px-2.5 py-1 bg-slate-100 text-slate-600 hover:bg-slate-200 font-bold rounded-lg text-[11px] transition"
+                          >
+                            ✕ Bỏ chọn tất cả
+                          </button>
+                        </div>
+                        <span className="font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100">
+                          Đã chọn: {selectedImeisForCart.length} / {availableImeis.length} IMEI
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* IMEI checklist */}
+                    <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[360px] space-y-2 pr-1">
+                      {filtered.length === 0 ? (
+                        <div className="py-12 text-center text-slate-400">
+                          <p className="text-xs font-semibold">
+                            {availableImeis.length === 0 
+                              ? 'Sản phẩm này chưa có IMEI nào sẵn sàng trong kho!' 
+                              : 'Không tìm thấy mã IMEI khớp với từ khóa search.'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {filtered.map(i => {
+                            const isSelected = selectedImeisForCart.includes(i.imei);
+                            return (
+                              <button
+                                key={i.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedImeisForCart(prev => prev.filter(x => x !== i.imei));
+                                  } else {
+                                    setSelectedImeisForCart(prev => [...prev, i.imei]);
+                                  }
+                                }}
+                                className={`flex items-center justify-between p-3 rounded-xl border text-left transition cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-2xs ring-1 ring-indigo-500'
+                                    : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                <div>
+                                  <span className="font-mono font-bold text-xs block">{i.imei}</span>
+                                  <span className="text-[10px] text-slate-400 font-medium">Nhập: {new Date(i.addedAt).toLocaleDateString('vi-VN')}</span>
+                                </div>
+                                <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition ${
+                                  isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 bg-white'
+                                }`}>
+                                  {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer Submit */}
+                    <div className="pt-4 mt-3 border-t border-slate-100 flex justify-end gap-3 items-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectingImeiFor(null);
+                          setSelectedImeisForCart([]);
+                        }}
+                        className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl cursor-pointer transition"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        disabled={selectedImeisForCart.length === 0}
+                        onClick={() => {
+                          if (selectedImeisForCart.length > 0) {
+                            addToCart(selectingImeiFor, selectedImeisForCart);
+                            setSelectingImeiFor(null);
+                            setSelectedImeisForCart([]);
+                          }
+                        }}
+                        className={`px-5 py-2.5 text-xs font-black rounded-xl cursor-pointer shadow-xs transition flex items-center gap-1.5 ${
+                          selectedImeisForCart.length > 0
+                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        Thêm ({selectedImeisForCart.length}) IMEI vào giỏ hàng
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Invoice Modal */}
+      <AnimatePresence>
+        {editingInvoice && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" onClick={() => setEditingInvoice(null)} />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-2xl z-10 border border-slate-100 flex flex-col max-h-[90vh]"
+            >
+              <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
+                    <Edit className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-slate-900">Chỉnh Sửa Hóa Đơn Bán Hàng</h2>
+                    <p className="text-xs text-slate-500 font-mono font-bold">Mã HĐ: {editingInvoice.invoiceNumber}</p>
+                  </div>
+                </div>
+                <button onClick={() => setEditingInvoice(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer p-1">
+                  <X className="w-5 h-5"/>
+                </button>
+              </div>
+
+              <div className="overflow-y-auto space-y-4 pr-1 flex-1">
+                {/* Customer Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Tên Khách Hàng</label>
+                    <input
+                      type="text"
+                      value={editingInvoice.customerName}
+                      onChange={e => setEditingInvoice({ ...editingInvoice, customerName: e.target.value })}
+                      className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2.5 font-semibold focus:outline-hidden focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Số Điện Thoại</label>
+                    <input
+                      type="text"
+                      value={editingInvoice.customerPhone}
+                      onChange={e => setEditingInvoice({ ...editingInvoice, customerPhone: e.target.value })}
+                      className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2.5 font-semibold focus:outline-hidden focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Invoice Items List */}
+                <div>
+                  <h3 className="text-xs font-extrabold uppercase text-slate-700 mb-2">Danh Sách Mặt Hàng Trong Hóa Đơn</h3>
+                  <div className="space-y-2">
+                    {editingInvoice.items.map((item, idx) => (
+                      <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <p className="text-xs font-bold text-slate-900">{item.productName}</p>
+                          <span className="text-[11px] font-mono font-extrabold text-indigo-600">
+                            Thành tiền: {formatVND(item.price * item.quantity)}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 items-center">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Đơn Giá (VNĐ)</label>
+                            <input
+                              type="number"
+                              value={item.price}
+                              onChange={e => {
+                                const newPrice = Math.max(0, Number(e.target.value));
+                                const updatedItems = [...editingInvoice.items];
+                                updatedItems[idx] = { ...item, price: newPrice };
+                                const newTotal = updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+                                setEditingInvoice({ ...editingInvoice, items: updatedItems, totalAmount: newTotal });
+                              }}
+                              className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Số Lượng</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={item.quantity}
+                              onChange={e => {
+                                const newQty = Math.max(1, Number(e.target.value));
+                                const updatedItems = [...editingInvoice.items];
+                                updatedItems[idx] = { ...item, quantity: newQty };
+                                const newTotal = updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+                                setEditingInvoice({ ...editingInvoice, items: updatedItems, totalAmount: newTotal });
+                              }}
+                              className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        {item.imeis && item.imeis.length > 0 && (
+                          <div className="text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
+                            <span className="font-bold">Danh sách IMEI:</span>
+                            <div className="flex flex-wrap gap-1 mt-1 font-mono">
+                              {item.imeis.map(im => (
+                                <span key={im} className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded-sm text-[10px] border border-slate-200">
+                                  {im}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Additional Settings */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Phương Thức Thanh Toán</label>
+                    <select
+                      value={editingInvoice.paymentMethod}
+                      onChange={e => setEditingInvoice({ ...editingInvoice, paymentMethod: e.target.value as any })}
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-800 focus:outline-hidden"
+                    >
+                      <option value="Tiền mặt">💵 Tiền mặt</option>
+                      <option value="Chuyển khoản">🏦 Chuyển khoản (VietQR)</option>
+                      <option value="Quẹt thẻ">💳 Quẹt thẻ POS</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Ghi Chú</label>
+                    <input
+                      type="text"
+                      placeholder="Ghi chú hóa đơn..."
+                      value={editingInvoice.note || ''}
+                      onChange={e => setEditingInvoice({ ...editingInvoice, note: e.target.value })}
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                {/* Summary total */}
+                <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl flex justify-between items-center">
+                  <span className="text-xs font-bold text-amber-900">Tổng Tiền Thanh Toán Mới:</span>
+                  <span className="text-lg font-black text-amber-600">{formatVND(editingInvoice.totalAmount)}</span>
+                </div>
+              </div>
+
+              <div className="pt-4 mt-2 border-t border-slate-100 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingInvoice(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl cursor-pointer transition"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  id="btn-save-edit-invoice"
+                  onClick={() => {
+                    if (onUpdateInvoice) {
+                      onUpdateInvoice(editingInvoice);
+                    }
+                    setEditingInvoice(null);
+                    if (activeInvoiceDetails?.id === editingInvoice.id) {
+                      setActiveInvoiceDetails(editingInvoice);
+                    }
+                  }}
+                  className="px-5 py-2.5 text-xs font-black bg-amber-600 hover:bg-amber-700 text-white rounded-xl cursor-pointer shadow-xs transition uppercase tracking-wider"
+                >
+                  Lưu thay đổi hóa đơn
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Invoice Confirmation Modal */}
+      <AnimatePresence>
+        {deletingInvoice && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeletingInvoice(null)}
+              className="fixed inset-0 bg-black"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-md z-10 relative border border-slate-100 space-y-4"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="p-3 bg-rose-50 rounded-2xl">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Xóa Hóa Đơn Bán Hàng</h3>
+                  <p className="text-xs text-slate-500 font-medium">Mã HĐ: {deletingInvoice.invoiceNumber}</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
+                <p><span className="text-slate-500">Khách hàng:</span> <span className="font-bold text-slate-900">{deletingInvoice.customerName} ({deletingInvoice.customerPhone})</span></p>
+                <p><span className="text-slate-500">Tổng tiền thanh toán:</span> <span className="font-extrabold text-indigo-600">{formatVND(deletingInvoice.totalAmount)}</span></p>
+                <p><span className="text-slate-500">Sản phẩm:</span> {deletingInvoice.items.map(i => i.productName).join(', ')}</p>
+              </div>
+
+              <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-xs leading-relaxed">
+                ⚠️ <span className="font-bold">Lưu ý:</span> Xóa hóa đơn sẽ tự động hoàn trả số lượng tồn kho của tất cả sản phẩm và cập nhật lại trạng thái các số IMEI về "Trong kho".
+              </div>
+
+              <div className="pt-2 flex gap-3 justify-end">
+                <button 
+                  type="button" 
+                  onClick={() => setDeletingInvoice(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer transition"
+                >
+                  Hủy bỏ
+                </button>
+                <button 
+                  type="button" 
+                  id="btn-confirm-delete-invoice"
+                  onClick={() => {
+                    if (onDeleteInvoice) {
+                      onDeleteInvoice(deletingInvoice.id);
+                    }
+                    setDeletingInvoice(null);
+                    if (activeInvoiceDetails?.id === deletingInvoice.id) {
+                      setActiveInvoiceDetails(null);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs font-black bg-rose-600 hover:bg-rose-700 text-white rounded-xl cursor-pointer shadow-2xs transition"
+                >
+                  Xác nhận xóa hóa đơn
+                </button>
               </div>
             </motion.div>
           </div>
