@@ -443,13 +443,17 @@ export default function App() {
     if (newInvoice.debtAmount && newInvoice.debtAmount > 0) {
       const newDebt: Debt = {
         id: `debt_${Date.now()}`,
+        invoiceId: newInvoice.id,
+        invoiceNumber: newInvoice.invoiceNumber,
         customerId: newInvoice.customerId,
         customerName: newInvoice.customerName,
+        customerPhone: newInvoice.customerPhone,
         amount: newInvoice.totalAmount,
         remainingAmount: newInvoice.debtAmount,
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        dueDate: newInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         status: newInvoice.debtAmount === newInvoice.totalAmount ? 'pending' : 'partial',
-        createdAt: newInvoice.createdAt
+        createdAt: newInvoice.createdAt,
+        note: `Công nợ hóa đơn #${newInvoice.invoiceNumber}` + (newInvoice.note ? ` - ${newInvoice.note}` : '')
       };
       saveDebts([...debts, newDebt]);
     }
@@ -596,6 +600,47 @@ export default function App() {
     const nextInvoices = invoices.map(inv => inv.id === updatedInvoice.id ? updatedInvoice : inv);
     saveInvoices(nextInvoices);
 
+    // Sync linked debt if exists
+    const existingDebtIdx = debts.findIndex(d => 
+      (d.invoiceId && d.invoiceId === updatedInvoice.id) || 
+      (d.invoiceNumber && d.invoiceNumber === updatedInvoice.invoiceNumber) || 
+      (d.customerId === updatedInvoice.customerId && d.createdAt === updatedInvoice.createdAt)
+    );
+
+    if (updatedInvoice.debtAmount && updatedInvoice.debtAmount > 0) {
+      if (existingDebtIdx > -1) {
+        const nextDebts = [...debts];
+        nextDebts[existingDebtIdx] = {
+          ...nextDebts[existingDebtIdx],
+          amount: updatedInvoice.totalAmount,
+          remainingAmount: updatedInvoice.debtAmount,
+          customerName: updatedInvoice.customerName,
+          customerPhone: updatedInvoice.customerPhone,
+          note: `Công nợ hóa đơn #${updatedInvoice.invoiceNumber}` + (updatedInvoice.note ? ` - ${updatedInvoice.note}` : '')
+        };
+        saveDebts(nextDebts);
+      } else {
+        const newDebt: Debt = {
+          id: `debt_${Date.now()}`,
+          invoiceId: updatedInvoice.id,
+          invoiceNumber: updatedInvoice.invoiceNumber,
+          customerId: updatedInvoice.customerId,
+          customerName: updatedInvoice.customerName,
+          customerPhone: updatedInvoice.customerPhone,
+          amount: updatedInvoice.totalAmount,
+          remainingAmount: updatedInvoice.debtAmount,
+          dueDate: updatedInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          status: updatedInvoice.debtAmount === updatedInvoice.totalAmount ? 'pending' : 'partial',
+          createdAt: updatedInvoice.createdAt,
+          note: `Công nợ hóa đơn #${updatedInvoice.invoiceNumber}` + (updatedInvoice.note ? ` - ${updatedInvoice.note}` : '')
+        };
+        saveDebts([...debts, newDebt]);
+      }
+    } else if (existingDebtIdx > -1) {
+      const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
+      saveDebts(nextDebts);
+    }
+
     logActivity(
       'sale',
       'Chỉnh sửa hóa đơn bán hàng',
@@ -638,10 +683,12 @@ export default function App() {
     const nextInvoices = invoices.filter(inv => inv.id !== invoiceId);
     saveInvoices(nextInvoices);
 
-    if (targetInvoice.debtAmount && targetInvoice.debtAmount > 0) {
-      const nextDebts = debts.filter(d => !(d.customerId === targetInvoice.customerId && d.createdAt === targetInvoice.createdAt));
-      saveDebts(nextDebts);
-    }
+    const nextDebts = debts.filter(d => !(
+      (d.invoiceId && d.invoiceId === targetInvoice.id) ||
+      (d.invoiceNumber && d.invoiceNumber === targetInvoice.invoiceNumber) ||
+      (d.customerId === targetInvoice.customerId && d.createdAt === targetInvoice.createdAt)
+    ));
+    saveDebts(nextDebts);
 
     logActivity(
       'sale',

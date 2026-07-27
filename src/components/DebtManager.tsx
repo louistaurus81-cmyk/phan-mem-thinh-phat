@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Debt, Customer } from '../types';
+import { Debt, Customer, SalesInvoice, PrintSettings } from '../types';
 import { 
   Search, 
   DollarSign, 
@@ -11,7 +11,12 @@ import {
   X,
   TrendingDown,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  FileText,
+  Printer,
+  QrCode,
+  Receipt,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -19,10 +24,11 @@ interface DebtManagerProps {
   debts: Debt[];
   onUpdateDebts: (updated: Debt[]) => void;
   customers: Customer[];
-  invoices?: any[];
+  invoices?: SalesInvoice[];
+  printSettings?: PrintSettings;
 }
 
-export default function DebtManager({ debts, onUpdateDebts, customers }: DebtManagerProps) {
+export default function DebtManager({ debts, onUpdateDebts, customers, invoices = [], printSettings }: DebtManagerProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all');
   
@@ -31,6 +37,8 @@ export default function DebtManager({ debts, onUpdateDebts, customers }: DebtMan
   const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null);
   const [payAmountInput, setPayAmountInput] = useState<number>(0);
   const [payNote, setPayNote] = useState('');
+
+  const [viewingInvoiceDetails, setViewingInvoiceDetails] = useState<SalesInvoice | null>(null);
 
   const [showAddManualModal, setShowAddManualModal] = useState(false);
   const [manualDebt, setManualDebt] = useState({
@@ -46,6 +54,25 @@ export default function DebtManager({ debts, onUpdateDebts, customers }: DebtMan
 
   const formatVND = (value: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
+  };
+
+  // Helper to find associated invoice for a debt record
+  const getInvoiceForDebt = (debt: Debt): SalesInvoice | undefined => {
+    if (debt.invoiceId && invoices) {
+      const inv = invoices.find(i => i.id === debt.invoiceId);
+      if (inv) return inv;
+    }
+    if (debt.invoiceNumber && invoices) {
+      const inv = invoices.find(i => i.invoiceNumber === debt.invoiceNumber);
+      if (inv) return inv;
+    }
+    if (invoices && invoices.length > 0) {
+      return invoices.find(i => 
+        (i.customerId === debt.customerId && i.createdAt === debt.createdAt) ||
+        (debt.note && debt.note.includes(i.invoiceNumber))
+      );
+    }
+    return undefined;
   };
 
   // Compute stats
@@ -80,13 +107,21 @@ export default function DebtManager({ debts, onUpdateDebts, customers }: DebtMan
       // Search match
       if (!searchQuery.trim()) return true;
       const query = searchQuery.toLowerCase();
+      const inv = getInvoiceForDebt(d);
+      const itemsStr = inv ? inv.items.map(i => i.productName).join(' ').toLowerCase() : '';
+
       return (
         d.customerName.toLowerCase().includes(query) ||
+        (d.customerPhone && d.customerPhone.includes(query)) ||
+        (d.invoiceNumber && d.invoiceNumber.toLowerCase().includes(query)) ||
+        (inv && inv.invoiceNumber.toLowerCase().includes(query)) ||
         (d.id && d.id.toLowerCase().includes(query)) ||
-        d.dueDate.includes(query)
+        (d.note && d.note.toLowerCase().includes(query)) ||
+        d.dueDate.includes(query) ||
+        itemsStr.includes(query)
       );
     });
-  }, [debts, filterTab, searchQuery]);
+  }, [debts, filterTab, searchQuery, invoices]);
 
   // Debt payment action
   const handleCollectPayment = (e: React.FormEvent) => {
@@ -247,7 +282,7 @@ export default function DebtManager({ debts, onUpdateDebts, customers }: DebtMan
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
             <input 
               type="text"
-              placeholder="Tìm theo ví dụ tên, kỳ hạn..."
+              placeholder="Tìm theo tên, SĐT, mã hóa đơn (HD-...), sản phẩm..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full text-xs pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-hidden"
@@ -260,8 +295,9 @@ export default function DebtManager({ debts, onUpdateDebts, customers }: DebtMan
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 tracking-wider border-b border-slate-100">
-                <th className="py-3 px-4">Mã Giao Dịch</th>
+                <th className="py-3 px-4">Hóa Đơn / Mã GD</th>
                 <th className="py-3 px-4">Khách Hàng</th>
+                <th className="py-3 px-4">Sản Phẩm Đã Mua</th>
                 <th className="py-3 px-4">Tổng Nợ Gốc</th>
                 <th className="py-3 px-4">Nợ Còn Lại</th>
                 <th className="py-3 px-4">Kỳ Hạn Thanh Toán</th>
@@ -270,54 +306,103 @@ export default function DebtManager({ debts, onUpdateDebts, customers }: DebtMan
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredDebts.map(debt => (
-                <tr key={debt.id} className="hover:bg-slate-50/40 text-xs font-semibold">
-                  <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
-                    {debt.id.startsWith('manual') ? 'THỦ CÔNG' : 'GIAO DỊCH'}
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="font-bold text-slate-800">{debt.customerName}</div>
-                    {debt.note && <div className="text-[10px] text-slate-400 italic font-medium">{debt.note}</div>}
-                  </td>
-                  <td className="py-3 px-4 text-slate-600">{formatVND(debt.amount)}</td>
-                  <td className="py-3 px-4 text-indigo-600 font-bold">{formatVND(debt.remainingAmount)}</td>
-                  <td className="py-3 px-4 text-slate-500 font-mono">
-                    {debt.dueDate}
-                  </td>
-                  <td className="py-3 px-4">
-                    {debt.status === 'paid' ? (
-                      <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full border border-emerald-100">
-                        <CheckCircle2 className="w-3 h-3" /> Đã Quyết Toán
-                      </span>
-                    ) : isOverdue(debt) ? (
-                      <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full border border-rose-150 animate-pulse">
-                        <AlertTriangle className="w-3 h-3 animate-ping" /> Quá Hạn Trả
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-100 animate-pulse">
-                        <Clock className="w-3 h-3" /> Chờ Trả
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    {debt.remainingAmount > 0 && (
-                      <button
-                        onClick={() => {
-                          setSelectedDebt(debt);
-                          setPayAmountInput(debt.remainingAmount);
-                          setShowPayModal(true);
-                        }}
-                        className="bg-indigo-600 hover:bg-indigo-500 transition text-white px-3 py-1.5 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        Thu hồi nợ <ChevronRight className="w-3 h-3" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {filteredDebts.map(debt => {
+                const inv = getInvoiceForDebt(debt);
+                return (
+                  <tr key={debt.id} className="hover:bg-slate-50/40 text-xs font-semibold">
+                    <td className="py-3 px-4">
+                      {inv ? (
+                        <button
+                          type="button"
+                          onClick={() => setViewingInvoiceDetails(inv)}
+                          className="inline-flex items-center gap-1 font-mono font-extrabold text-[11px] text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 cursor-pointer transition shadow-2xs"
+                          title="Bấm để xem chi tiết hóa đơn bán hàng"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          #{inv.invoiceNumber}
+                        </button>
+                      ) : debt.invoiceNumber ? (
+                        <span className="font-mono text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded">
+                          #{debt.invoiceNumber}
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[10px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                          THỦ CÔNG
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-slate-900">{debt.customerName}</div>
+                      {(debt.customerPhone || inv?.customerPhone) && (
+                        <div className="text-[10px] text-slate-500 font-mono">📞 {debt.customerPhone || inv?.customerPhone}</div>
+                      )}
+                      {debt.note && <div className="text-[10px] text-slate-400 italic font-medium truncate max-w-[180px]">{debt.note}</div>}
+                    </td>
+                    <td className="py-3 px-4">
+                      {inv ? (
+                        <div className="max-w-[200px]">
+                          <div className="text-xs text-slate-800 font-semibold truncate" title={inv.items.map(i => `${i.productName} (x${i.quantity})`).join(', ')}>
+                            {inv.items.map(i => `${i.productName} (x${i.quantity})`).join(', ')}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono">{inv.items.length} mặt hàng</div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-[11px] italic">Ghi nợ mở biên thủ công</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-slate-600">{formatVND(debt.amount)}</td>
+                    <td className="py-3 px-4 text-indigo-600 font-bold">{formatVND(debt.remainingAmount)}</td>
+                    <td className="py-3 px-4 text-slate-500 font-mono">
+                      {debt.dueDate}
+                    </td>
+                    <td className="py-3 px-4">
+                      {debt.status === 'paid' ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full border border-emerald-100">
+                          <CheckCircle2 className="w-3 h-3" /> Đã Quyết Toán
+                        </span>
+                      ) : isOverdue(debt) ? (
+                        <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full border border-rose-150 animate-pulse">
+                          <AlertTriangle className="w-3 h-3 animate-ping" /> Quá Hạn Trả
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-100 animate-pulse">
+                          <Clock className="w-3 h-3" /> Chờ Trả
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {inv && (
+                          <button
+                            type="button"
+                            onClick={() => setViewingInvoiceDetails(inv)}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1.5 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer transition border border-slate-250"
+                            title="Xem chi tiết hóa đơn"
+                          >
+                            <FileText className="w-3.5 h-3.5" /> Hóa đơn
+                          </button>
+                        )}
+                        {debt.remainingAmount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDebt(debt);
+                              setPayAmountInput(debt.remainingAmount);
+                              setShowPayModal(true);
+                            }}
+                            className="bg-indigo-600 hover:bg-indigo-700 transition text-white px-3 py-1.5 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                          >
+                            Thu hồi nợ <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {filteredDebts.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-400 italic">
+                  <td colSpan={8} className="text-center py-10 text-slate-400 italic">
                     Không tìm thấy bản ghi nợ nào phù hợp với bộ lọc
                   </td>
                 </tr>
@@ -512,6 +597,171 @@ export default function DebtManager({ debts, onUpdateDebts, customers }: DebtMan
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Invoice Detail Modal Overlay */}
+      <AnimatePresence>
+        {viewingInvoiceDetails && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div 
+              className="absolute inset-0 bg-black/60 backdrop-blur-xs" 
+              onClick={() => setViewingInvoiceDetails(null)} 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl p-6 relative w-full max-w-2xl z-10 border border-slate-100 flex flex-col max-h-[90vh]"
+            >
+              {/* Printable container */}
+              <div id="print-debt-invoice-section" className="overflow-y-auto pr-1 space-y-4 flex-1">
+                {/* Header */}
+                <div className="flex justify-between items-start pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900">Chi Tiết Hóa Đơn Bán Hàng</h2>
+                      <p className="text-xs font-mono font-bold text-indigo-600">Mã HĐ: #{viewingInvoiceDetails.invoiceNumber}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setViewingInvoiceDetails(null)} 
+                    className="p-1 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Customer & Info Grid */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 text-xs space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Khách hàng:</span>
+                    <span className="font-bold text-slate-900">{viewingInvoiceDetails.customerName}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Số điện thoại:</span>
+                    <span className="font-mono font-bold text-slate-900">{viewingInvoiceDetails.customerPhone || 'Không có'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Ngày lập hóa đơn:</span>
+                    <span className="font-mono font-medium text-slate-700">{new Date(viewingInvoiceDetails.createdAt).toLocaleString('vi-VN')}</span>
+                  </div>
+                  {viewingInvoiceDetails.processedBy && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-500 font-medium">Nhân viên phục vụ:</span>
+                      <span className="font-bold text-indigo-700">👤 {viewingInvoiceDetails.processedBy}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500 font-medium">Phương thức:</span>
+                    <span className="font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200 text-[11px]">💳 {viewingInvoiceDetails.paymentMethod}</span>
+                  </div>
+                </div>
+
+                {/* Items table */}
+                <div>
+                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-600 mb-2">Danh Sách Mặt Hàng Đã Mua</h3>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Sản phẩm</th>
+                          <th className="py-2.5 px-3 text-right">Đơn giá</th>
+                          <th className="py-2.5 px-3 text-center">SL</th>
+                          <th className="py-2.5 px-3 text-right">Thành tiền</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {viewingInvoiceDetails.items.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/50">
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-slate-900">{item.productName}</div>
+                              {item.imeis && item.imeis.length > 0 && (
+                                <div className="text-[10px] text-slate-500 font-mono mt-0.5 flex flex-wrap gap-1">
+                                  {item.imeis.map(im => (
+                                    <span key={im} className="bg-slate-100 px-1 py-0.5 rounded border border-slate-200">
+                                      IMEI: {im}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-600">{formatVND(item.price)}</td>
+                            <td className="py-2.5 px-3 text-center font-bold font-mono">{item.quantity}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                              {formatVND(item.price * item.quantity)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Payment Breakdown */}
+                <div className="bg-indigo-50/60 border border-indigo-100 p-3.5 rounded-2xl text-xs space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-slate-600">Tổng giá trị đơn hàng:</span>
+                    <span className="font-black text-slate-900 text-sm">{formatVND(viewingInvoiceDetails.totalAmount)}</span>
+                  </div>
+                  {viewingInvoiceDetails.debtAmount ? (
+                    <>
+                      <div className="flex justify-between items-center text-emerald-700">
+                        <span className="font-medium">Đã thanh toán:</span>
+                        <span className="font-bold">{formatVND(viewingInvoiceDetails.totalAmount - viewingInvoiceDetails.debtAmount)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-rose-600 font-bold">
+                        <span>Số tiền ghi nợ đọng:</span>
+                        <span className="text-sm font-black">{formatVND(viewingInvoiceDetails.debtAmount)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between items-center text-emerald-700 font-bold">
+                      <span>Trạng thái:</span>
+                      <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px]">Đã thanh toán đủ</span>
+                    </div>
+                  )}
+                </div>
+
+                {viewingInvoiceDetails.note && (
+                  <div className="text-xs text-slate-600 bg-amber-50/80 p-3 rounded-xl border border-amber-200">
+                    <span className="font-bold text-amber-900">📝 Ghi chú:</span> {viewingInvoiceDetails.note}
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Actions Footer */}
+              <div className="pt-4 mt-2 border-t border-slate-100 flex justify-between items-center">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const printC = document.getElementById('print-debt-invoice-section')?.innerHTML;
+                    const originalC = document.body.innerHTML;
+                    if (printC) {
+                      document.body.innerHTML = printC;
+                      window.print();
+                      document.body.innerHTML = originalC;
+                      window.location.reload();
+                    }
+                  }}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl cursor-pointer flex items-center gap-1.5 transition"
+                >
+                  <Printer className="w-4 h-4" /> In Hóa Đơn
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewingInvoiceDetails(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition"
+                >
+                  Đóng
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

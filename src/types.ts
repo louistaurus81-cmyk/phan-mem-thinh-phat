@@ -58,12 +58,16 @@ export interface SalesInvoice {
   note?: string;
   processedBy?: string;
   debtAmount?: number; // ADDED: Amount still owed
+  debtDueDate?: string; // ADDED: Due date for debt
 }
 
 export interface Debt {
   id: string;
+  invoiceId?: string;
+  invoiceNumber?: string;
   customerId: string;
   customerName: string;
+  customerPhone?: string;
   amount: number;
   remainingAmount: number;
   dueDate: string;

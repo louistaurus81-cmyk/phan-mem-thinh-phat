@@ -452,7 +452,8 @@ export default function SalesManager({
       createdAt: new Date().toISOString(),
       note: (invoiceNote.trim() || '') + (discountPercent > 0 ? ` [Chiết khấu hoá đơn giảm ${discountPercent}%]` : '') + (isDebt ? ` [Ghi nợ: ${formatVND(debtAmount)}, Hạn nợ: ${debtDueDate}]` : ''),
       processedBy: processedBy || currentUser.fullName,
-      debtAmount: isDebt ? debtAmount : undefined
+      debtAmount: isDebt ? debtAmount : undefined,
+      debtDueDate: isDebt ? debtDueDate : undefined
     };
 
     // Commit invoice and deduct stock
