@@ -2104,7 +2104,11 @@ export default function SalesManager({
                           <p className="text-slate-950 font-bold">{item.productName}</p>
                           <p className="text-[10px] text-slate-500 font-bold">Số lượng: {item.quantity} × {formatVND(item.price)}</p>
                           {item.imeis && item.imeis.length > 0 && (
-                            <p className="text-[10px] text-indigo-700 font-bold mt-0.5">IMEIs: {item.imeis.join(', ')}</p>
+                            <p className="text-[10px] text-indigo-700 font-bold mt-0.5">
+                              {item.imeis.length === 1
+                                ? `IMEI: ${item.imeis[0]}`
+                                : `IMEI: ${item.imeis[0]} (+${item.imeis.length - 1} IMEI)`}
+                            </p>
                           )}
                         </div>
                         <span className="font-extrabold text-slate-900 flex-shrink-0 align-bottom self-end">{formatVND(item.price * item.quantity)}</span>

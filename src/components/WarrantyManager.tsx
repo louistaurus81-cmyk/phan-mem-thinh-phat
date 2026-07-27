@@ -26,6 +26,81 @@ interface WarrantyManagerProps {
   invoices: SalesInvoice[];
 }
 
+function SmartImeiBadge({ serialNumber, searchQuery = '' }: { serialNumber: string; searchQuery?: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!serialNumber) return null;
+
+  const imeis = serialNumber.split(',').map(s => s.trim()).filter(Boolean);
+
+  if (imeis.length <= 1) {
+    return (
+      <span className="text-[10px] uppercase font-mono font-bold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200 inline-block">
+        {serialNumber}
+      </span>
+    );
+  }
+
+  const query = searchQuery.trim().toLowerCase();
+  const matchedImei = query ? imeis.find(i => i.toLowerCase().includes(query)) : null;
+  const primaryImei = matchedImei || imeis[0];
+  const remainingCount = imeis.length - 1;
+
+  if (!expanded) {
+    return (
+      <div className="inline-flex items-center gap-1.5 my-0.5" onClick={(e) => e.stopPropagation()}>
+        <span className="text-[10px] uppercase font-mono font-bold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+          {primaryImei}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(true);
+          }}
+          className="text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200 cursor-pointer transition"
+          title="Nhấn để xem danh sách IMEI"
+        >
+          +{remainingCount} IMEI (xem)
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 space-y-1 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-bold text-slate-500">Danh sách {imeis.length} IMEI:</span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(false);
+          }}
+          className="text-[10px] font-bold text-indigo-600 hover:underline cursor-pointer"
+        >
+          Ẩn bớt
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1.5 bg-slate-50 border border-slate-200 rounded-md">
+        {imeis.map((im, idx) => {
+          const isMatch = query && im.toLowerCase().includes(query);
+          return (
+            <span
+              key={idx}
+              className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded border ${
+                isMatch ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold' : 'bg-white text-slate-700 border-slate-200'
+              }`}
+            >
+              {im}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function WarrantyManager({
   warranties,
   repairs,
@@ -335,10 +410,10 @@ export default function WarrantyManager({
                                  <h4 className={`font-bold text-lg mt-1 ${w.linkedInvoiceId ? 'text-indigo-600 group-hover:text-indigo-700 underline decoration-indigo-200 underline-offset-2' : 'text-slate-900'}`}>
                                    {w.productName}
                                  </h4>
-                                 <p className="text-xs font-mono font-bold text-slate-600 mt-1 flex items-center gap-1.5">
+                                 <div className="text-xs font-mono font-bold text-slate-600 mt-1 flex items-center gap-1.5 flex-wrap">
                                    <span>Mã S/N - IMEI:</span>
-                                   <span className="bg-slate-100 text-indigo-700 px-1.5 py-0.5 rounded border border-slate-200">{w.serialNumber}</span>
-                                 </p>
+                                   <SmartImeiBadge serialNumber={w.serialNumber} searchQuery={portalSearch} />
+                                 </div>
                                  {w.linkedInvoiceId && (
                                     <p className="text-[10px] text-indigo-500 mt-1 italic">👆 Nhấn vào đây để xem chi tiết hoá đơn gốc / cấu hình bán ra</p>
                                  )}
@@ -387,23 +462,8 @@ export default function WarrantyManager({
                                        <div className="pr-2">
                                          <p className="font-bold text-slate-800">{it.productName}</p>
                                          {it.imeis && it.imeis.length > 0 && (
-                                           <div className="mt-1 flex flex-wrap gap-1">
-                                             <span className="text-[9.5px] font-bold text-slate-400">IMEIs:</span>
-                                             {it.imeis.map((im, imIdx) => {
-                                               const isQueried = portalSearch.trim() && im.toLowerCase().includes(portalSearch.trim().toLowerCase());
-                                               return (
-                                                 <span 
-                                                   key={imIdx} 
-                                                   className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded border ${
-                                                     isQueried 
-                                                       ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold animate-pulse' 
-                                                       : 'bg-white text-indigo-700 border-indigo-100'
-                                                   }`}
-                                                 >
-                                                   {im}
-                                                 </span>
-                                               );
-                                             })}
+                                           <div className="mt-1">
+                                             <SmartImeiBadge serialNumber={it.imeis.join(', ')} searchQuery={portalSearch} />
                                            </div>
                                          )}
                                        </div>
@@ -576,9 +636,7 @@ export default function WarrantyManager({
                           {matchedRepair && <Wrench className="w-3.5 h-3.5 inline-block ml-1 text-emerald-500" />}
                         </p>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          <span className="text-[10px] uppercase font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm border border-slate-200">
-                            {card.serialNumber}
-                          </span>
+                          <SmartImeiBadge serialNumber={card.serialNumber} searchQuery={dirSearch} />
                           {matchedInvoice && (
                             <span className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-sm border border-indigo-100">
                               HĐ #{matchedInvoice.invoiceNumber} ({matchedInvoice.items.length} sp)
@@ -868,13 +926,8 @@ export default function WarrantyManager({
                           <td className="py-3 px-4 font-semibold text-slate-800">
                             <p className="font-bold text-slate-900">{it.productName}</p>
                             {it.imeis && it.imeis.length > 0 && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                <span className="text-[10px] text-slate-400 font-bold">IMEIs:</span>
-                                {it.imeis.map((im, imIdx) => (
-                                  <span key={imIdx} className="text-[10px] font-mono bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
-                                    {im}
-                                  </span>
-                                ))}
+                              <div className="mt-1">
+                                <SmartImeiBadge serialNumber={it.imeis.join(', ')} />
                               </div>
                             )}
                           </td>
