@@ -99,7 +99,7 @@ export default function SalesManager({
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'Tiền mặt' | 'Chuyển khoản' | 'Thẻ'>('Chuyển khoản');
+  const [paymentMethod, setPaymentMethod] = useState<'Tiền mặt' | 'Chuyển khoản' | 'Thẻ' | 'Quẹt thẻ' | 'Ghi nợ'>('Chuyển khoản');
   const [invoiceNote, setInvoiceNote] = useState('');
   const [processedBy, setProcessedBy] = useState<string>(currentUser?.fullName || '');
   const [discountPercent, setDiscountPercent] = useState<number>(0);
@@ -976,61 +976,85 @@ export default function SalesManager({
                   {/* Payment Method selection */}
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Phương thức thanh toán</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(['Tiền mặt', 'Chuyển khoản', 'Thẻ'] as const).map(method => (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {(['Tiền mặt', 'Chuyển khoản', 'Thẻ', 'Ghi nợ'] as const).map(method => (
                         <button 
                           key={method}
                           type="button"
-                          onClick={() => setPaymentMethod(method)}
-                          className={`py-1.5 text-center text-xs font-medium rounded-lg border transition cursor-pointer ${
+                          onClick={() => {
+                            setPaymentMethod(method);
+                            if (method === 'Ghi nợ') {
+                              setIsDebt(true);
+                              if (debtAmount === 0 || debtAmount !== cartGrandTotal) {
+                                setDebtAmount(cartGrandTotal);
+                              }
+                            }
+                          }}
+                          className={`py-1.5 text-center text-xs font-bold rounded-lg border transition cursor-pointer ${
                             paymentMethod === method 
                               ? 'bg-slate-900 border-slate-900 text-white shadow-2xs' 
                               : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                           }`}
                         >
-                          {method}
+                          {method === 'Ghi nợ' ? '📝 Ghi nợ' : method}
                         </button>
                       ))}
                     </div>
                   </div>
 
                   {/* Debt control check box and details */}
-                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 space-y-2">
+                  <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-3 space-y-2">
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input 
                         type="checkbox" 
                         checked={isDebt} 
-                        onChange={e => setIsDebt(e.target.checked)}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                        onChange={e => {
+                          const checked = e.target.checked;
+                          setIsDebt(checked);
+                          if (checked) {
+                            if (debtAmount === 0) setDebtAmount(cartGrandTotal);
+                            if (paymentMethod !== 'Ghi nợ' && debtAmount === cartGrandTotal) {
+                              setPaymentMethod('Ghi nợ');
+                            }
+                          } else {
+                            if (paymentMethod === 'Ghi nợ') setPaymentMethod('Tiền mặt');
+                          }
+                        }}
+                        className="rounded border-amber-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
                       />
-                      <span className="text-xs font-bold text-slate-700">Ghi nhận công nợ (Khách nợ/mua chịu)</span>
+                      <span className="text-xs font-bold text-slate-800">Ghi nhận công nợ (Khách nợ/mua chịu)</span>
                     </label>
 
                     {isDebt && (
                       <motion.div 
                         initial={{ opacity: 0, height: 0 }} 
                         animate={{ opacity: 1, height: 'auto' }}
-                        className="space-y-2 pt-2 border-t border-slate-200 overflow-hidden"
+                        className="space-y-2 pt-2 border-t border-amber-200/80 overflow-hidden"
                       >
                         <div>
-                          <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Số tiền khách nợ (VND)</label>
+                          <label className="block text-[10px] uppercase font-bold text-slate-600 mb-0.5">Số tiền ghi nợ (VND)</label>
                           <input 
                             type="number" 
                             max={cartGrandTotal}
                             min={0}
                             value={debtAmount} 
-                            onChange={e => setDebtAmount(Math.min(cartGrandTotal, Number(e.target.value)))}
-                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg p-2 focus:outline-hidden text-indigo-600 focus:border-indigo-500"
+                            onChange={e => {
+                              const val = Math.min(cartGrandTotal, Math.max(0, Number(e.target.value)));
+                              setDebtAmount(val);
+                            }}
+                            className="w-full text-xs font-bold bg-white border border-amber-200 rounded-lg p-2 focus:outline-hidden text-indigo-700 focus:border-indigo-500 font-mono"
                           />
-                          <p className="text-[10px] text-slate-400 mt-0.5">Tổng giá trị: {formatVND(cartGrandTotal)}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                            Khách trả trước: <span className="font-bold text-emerald-700">{formatVND(Math.max(0, cartGrandTotal - debtAmount))}</span> / Tổng đơn: {formatVND(cartGrandTotal)}
+                          </p>
                         </div>
                         <div>
-                          <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Kỳ hạn phải trả</label>
+                          <label className="block text-[10px] uppercase font-bold text-slate-600 mb-0.5">Kỳ hạn phải trả (Hạn nợ)</label>
                           <input 
                             type="date" 
                             value={debtDueDate}
                             onChange={e => setDebtDueDate(e.target.value)}
-                            className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 focus:outline-hidden"
+                            className="w-full text-xs bg-white border border-amber-200 rounded-lg p-2 focus:outline-hidden font-bold"
                           />
                         </div>
                       </motion.div>
@@ -2697,12 +2721,28 @@ export default function SalesManager({
                     <label className="block text-xs font-bold text-slate-700 mb-1">Phương Thức Thanh Toán</label>
                     <select
                       value={editingInvoice.paymentMethod}
-                      onChange={e => setEditingInvoice({ ...editingInvoice, paymentMethod: e.target.value as any })}
+                      onChange={e => {
+                        const newMethod = e.target.value as any;
+                        if (newMethod === 'Ghi nợ') {
+                          setEditingInvoice({
+                            ...editingInvoice,
+                            paymentMethod: newMethod,
+                            debtAmount: editingInvoice.debtAmount && editingInvoice.debtAmount > 0 ? editingInvoice.debtAmount : editingInvoice.totalAmount,
+                            debtDueDate: editingInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+                          });
+                        } else {
+                          setEditingInvoice({
+                            ...editingInvoice,
+                            paymentMethod: newMethod
+                          });
+                        }
+                      }}
                       className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 font-bold text-slate-800 focus:outline-hidden"
                     >
                       <option value="Tiền mặt">💵 Tiền mặt</option>
                       <option value="Chuyển khoản">🏦 Chuyển khoản (VietQR)</option>
                       <option value="Quẹt thẻ">💳 Quẹt thẻ POS</option>
+                      <option value="Ghi nợ">📝 Ghi nợ (Công nợ)</option>
                     </select>
                   </div>
                   <div>
@@ -2715,6 +2755,69 @@ export default function SalesManager({
                       className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden"
                     />
                   </div>
+                </div>
+
+                {/* Debt Settings for Editing Invoice */}
+                <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-3">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={!!(editingInvoice.debtAmount && editingInvoice.debtAmount > 0)} 
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setEditingInvoice({
+                            ...editingInvoice,
+                            paymentMethod: editingInvoice.paymentMethod === 'Tiền mặt' ? 'Ghi nợ' : editingInvoice.paymentMethod,
+                            debtAmount: editingInvoice.debtAmount && editingInvoice.debtAmount > 0 ? editingInvoice.debtAmount : editingInvoice.totalAmount,
+                            debtDueDate: editingInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+                          });
+                        } else {
+                          setEditingInvoice({
+                            ...editingInvoice,
+                            debtAmount: 0,
+                            paymentMethod: editingInvoice.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : editingInvoice.paymentMethod
+                          });
+                        }
+                      }}
+                      className="rounded border-amber-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-amber-950">Ghi nhận công nợ (Khách nợ/mua chịu cho hóa đơn này)</span>
+                  </label>
+
+                  {!!(editingInvoice.debtAmount && editingInvoice.debtAmount > 0) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-amber-200/80">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-amber-900 mb-0.5">Số tiền ghi nợ (VNĐ)</label>
+                        <input 
+                          type="number"
+                          min={0}
+                          max={editingInvoice.totalAmount}
+                          value={editingInvoice.debtAmount}
+                          onChange={e => {
+                            const val = Math.min(editingInvoice.totalAmount, Math.max(0, Number(e.target.value)));
+                            setEditingInvoice({
+                              ...editingInvoice,
+                              debtAmount: val
+                            });
+                          }}
+                          className="w-full text-xs font-bold bg-white border border-amber-300 rounded-lg p-2 focus:outline-hidden text-amber-900 focus:border-amber-600 font-mono"
+                        />
+                        <p className="text-[10px] text-amber-800 mt-1 font-medium">
+                          Khách trả trước: <span className="font-bold text-emerald-700">{formatVND(Math.max(0, editingInvoice.totalAmount - (editingInvoice.debtAmount || 0)))}</span>
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-amber-900 mb-0.5">Kỳ hạn phải trả (Hạn nợ)</label>
+                        <input 
+                          type="date"
+                          value={editingInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+                          onChange={e => setEditingInvoice({ ...editingInvoice, debtDueDate: e.target.value })}
+                          className="w-full text-xs bg-white border border-amber-300 rounded-lg p-2 focus:outline-hidden font-bold text-amber-900"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Summary total */}

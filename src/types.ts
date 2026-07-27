@@ -53,7 +53,7 @@ export interface SalesInvoice {
   customerPhone: string;
   items: InvoiceItem[];
   totalAmount: number;
-  paymentMethod: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ';
+  paymentMethod: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ' | 'Quẹt thẻ' | 'Ghi nợ';
   createdAt: string;
   note?: string;
   processedBy?: string;
