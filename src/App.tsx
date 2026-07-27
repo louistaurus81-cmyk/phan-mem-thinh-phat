@@ -1314,6 +1314,8 @@ export default function App() {
                 onUpdateDebts={saveDebts}
                 customers={customers}
                 invoices={invoices}
+                printSettings={printSettings}
+                currentUser={currentUser}
               />
             )}
 

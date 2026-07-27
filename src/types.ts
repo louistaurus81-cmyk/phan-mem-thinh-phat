@@ -61,6 +61,15 @@ export interface SalesInvoice {
   debtDueDate?: string; // ADDED: Due date for debt
 }
 
+export interface DebtPayment {
+  id: string;
+  amount: number;
+  paidAt: string;
+  note?: string;
+  collectedBy?: string;
+  paymentMethod?: 'Tiền mặt' | 'Chuyển khoản' | 'Thẻ';
+}
+
 export interface Debt {
   id: string;
   invoiceId?: string;
@@ -74,6 +83,7 @@ export interface Debt {
   status: 'pending' | 'paid' | 'partial';
   createdAt: string;
   note?: string;
+  payments?: DebtPayment[];
 }
 
 export type UserRole = 'admin' | 'sales' | 'technician';
