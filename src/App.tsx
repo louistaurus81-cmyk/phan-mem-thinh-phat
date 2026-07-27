@@ -263,6 +263,55 @@ export default function App() {
     syncWithServer('warranties', newWarrs);
   };
 
+  // Auto-correct any PC build warranty card duration if invoice items specify different warranty months & sync real IMEIs
+  useEffect(() => {
+    if (dbLoading || invoices.length === 0 || warranties.length === 0) return;
+
+    let hasChange = false;
+    const syncedWarrs = warranties.map(w => {
+      const matchedInv = invoices.find(i => 
+        (w.linkedInvoiceId && i.id === w.linkedInvoiceId) || 
+        (w.serialNumber && w.serialNumber === i.invoiceNumber) ||
+        (i.invoiceNumber.startsWith('PC-') && w.productName.includes(i.invoiceNumber))
+      );
+
+      if (matchedInv && matchedInv.items && matchedInv.items.length > 0) {
+        if (matchedInv.invoiceNumber.startsWith('PC-') || w.productName.startsWith('Bộ Cấu Hình PC')) {
+          const correctMaxWarr = matchedInv.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0);
+          const purchaseDate = w.purchaseDate || matchedInv.createdAt.slice(0, 10);
+          const correctExpiryDate = computeExpiryDate(purchaseDate, correctMaxWarr);
+
+          if (w.warrantyMonths !== correctMaxWarr || w.expiryDate !== correctExpiryDate) {
+            hasChange = true;
+            return {
+              ...w,
+              warrantyMonths: correctMaxWarr,
+              expiryDate: correctExpiryDate
+            };
+          }
+        } else {
+          // If a warranty card currently has a fake generated serial "IMEI-14digits" but the invoice item has real IMEIs, update serialNumber
+          const matchedItem = matchedInv.items.find(it => it.productName === w.productName || it.productId === w.productName);
+          if (matchedItem && matchedItem.imeis && matchedItem.imeis.length > 0) {
+            const realImeisStr = matchedItem.imeis.join(', ');
+            if (w.serialNumber !== realImeisStr && w.serialNumber.startsWith('IMEI-') && !matchedItem.imeis.includes(w.serialNumber)) {
+              hasChange = true;
+              return {
+                ...w,
+                serialNumber: realImeisStr
+              };
+            }
+          }
+        }
+      }
+      return w;
+    });
+
+    if (hasChange) {
+      saveWarranties(syncedWarrs);
+    }
+  }, [dbLoading, invoices, warranties]);
+
   const saveCategories = (newCats: Category[]) => {
     setCategories(newCats);
     localStorage.setItem('thinhphat_v2_categories', JSON.stringify(newCats));
@@ -496,7 +545,7 @@ export default function App() {
     
     // Group PC Build into a single Warranty card using Invoice Number as Serial
     if (newInvoice.invoiceNumber.startsWith('PC-') && newInvoice.items.length > 0) {
-        const maxWarr = newInvoice.items.reduce((max, item) => Math.max(max, item.warrantyMonths || 0), 12);
+        const maxWarr = newInvoice.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0);
         const purchaseDate = newInvoice.createdAt.slice(0, 10);
         const expiryDateStr = computeExpiryDate(purchaseDate, maxWarr);
         
@@ -523,23 +572,42 @@ export default function App() {
           const purchaseDate = newInvoice.createdAt.slice(0, 10);
           const expiryDateStr = computeExpiryDate(purchaseDate, warrMonths);
           
-          // Formulate a realistic-looking serial/IMEI for electronics warranty
-          const randomSerialStr = `IMEI-${Math.floor(10000000000000 + Math.random() * 90000000000000)}`;
-          
-          const card: WarrantyCard = {
-            id: `warr_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-            serialNumber: randomSerialStr,
-            productName: item.productName,
-            customerName: newInvoice.customerName,
-            customerPhone: newInvoice.customerPhone,
-            purchaseDate,
-            warrantyMonths: warrMonths,
-            expiryDate: expiryDateStr,
-            status: 'active',
-            notes: `Từ Hoá đơn số ${newInvoice.invoiceNumber}`,
-            linkedInvoiceId: newInvoice.id
-          };
-          updatedWarranties.push(card);
+          if (item.imeis && item.imeis.length > 0) {
+            // Create warranty record for each actual product IMEI
+            item.imeis.forEach((imeiStr, iIdx) => {
+              const card: WarrantyCard = {
+                id: `warr_${Date.now()}_${iIdx}_${Math.random().toString(36).substr(2, 5)}`,
+                serialNumber: imeiStr.trim(),
+                productName: item.productName,
+                customerName: newInvoice.customerName,
+                customerPhone: newInvoice.customerPhone,
+                purchaseDate,
+                warrantyMonths: warrMonths,
+                expiryDate: expiryDateStr,
+                status: 'active',
+                notes: `Kích hoạt theo Hoá đơn ${newInvoice.invoiceNumber}`,
+                linkedInvoiceId: newInvoice.id
+              };
+              updatedWarranties.push(card);
+            });
+          } else {
+            // Product item without IMEI
+            const serialStr = prod?.sku ? `${prod.sku}-${newInvoice.invoiceNumber}` : `${newInvoice.invoiceNumber}-${item.productId}`;
+            const card: WarrantyCard = {
+              id: `warr_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+              serialNumber: serialStr,
+              productName: item.productName,
+              customerName: newInvoice.customerName,
+              customerPhone: newInvoice.customerPhone,
+              purchaseDate,
+              warrantyMonths: warrMonths,
+              expiryDate: expiryDateStr,
+              status: 'active',
+              notes: `Từ Hoá đơn số ${newInvoice.invoiceNumber}`,
+              linkedInvoiceId: newInvoice.id
+            };
+            updatedWarranties.push(card);
+          }
         }
       });
     }
@@ -639,6 +707,31 @@ export default function App() {
     } else if (existingDebtIdx > -1) {
       const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
       saveDebts(nextDebts);
+    }
+
+    // Sync linked warranty cards if updated
+    const linkedWarrIdx = warranties.findIndex(w => 
+      (w.linkedInvoiceId && w.linkedInvoiceId === updatedInvoice.id) ||
+      (w.serialNumber && w.serialNumber === updatedInvoice.invoiceNumber) ||
+      (updatedInvoice.invoiceNumber.startsWith('PC-') && w.productName.includes(updatedInvoice.invoiceNumber))
+    );
+    if (linkedWarrIdx > -1) {
+      const nextWarrs = [...warranties];
+      const targetWarr = nextWarrs[linkedWarrIdx];
+      const correctMaxWarr = updatedInvoice.items.length > 0 
+        ? updatedInvoice.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0)
+        : 0;
+      const purchaseDate = targetWarr.purchaseDate || updatedInvoice.createdAt.slice(0, 10);
+      const correctExpiryDate = computeExpiryDate(purchaseDate, correctMaxWarr);
+
+      nextWarrs[linkedWarrIdx] = {
+        ...targetWarr,
+        customerName: updatedInvoice.customerName,
+        customerPhone: updatedInvoice.customerPhone,
+        warrantyMonths: correctMaxWarr,
+        expiryDate: correctExpiryDate
+      };
+      saveWarranties(nextWarrs);
     }
 
     logActivity(

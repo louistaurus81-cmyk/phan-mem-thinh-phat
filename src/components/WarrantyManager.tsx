@@ -38,39 +38,93 @@ export default function WarrantyManager({
   const [activeSearchResult, setActiveSearchResult] = useState<{ type: 'warranty' | 'repair', data: WarrantyCard | RepairTicket } | null>(null);
   const [searched, setSearched] = useState(false);
 
-  // Use Barcode Scanner to quickly set portal search and search instantly
-  useBarcodeScanner((barcode) => {
-    setPortalSearch(barcode);
-    const query = barcode.trim().toLowerCase();
+  // Universal Search Engine for Product IMEI, Warranty Cards, and Invoice Items
+  const performWarrantyLookup = (rawQuery: string) => {
+    const query = rawQuery.trim().toLowerCase();
+    if (!query) return;
 
-    // Search Warranty
-    const warrantyMatch = warranties.find(w => 
-      w.serialNumber.toLowerCase() === query ||
-      w.customerName.toLowerCase().includes(query) ||
-      w.customerPhone.includes(query)
-    );
+    // 1. Search Warranty Cards (match S/N, customer, or linked invoice product IMEIs)
+    let warrantyMatch = warranties.find(w => {
+      if (w.serialNumber.toLowerCase() === query || w.serialNumber.toLowerCase().includes(query)) return true;
+      if (w.customerName.toLowerCase().includes(query) || w.customerPhone.includes(query)) return true;
+      if (w.productName.toLowerCase().includes(query)) return true;
 
-    if (warrantyMatch) {
-       setActiveSearchResult({ type: 'warranty', data: warrantyMatch });
-       setSearched(true);
-       return;
+      if (w.linkedInvoiceId) {
+        const inv = invoices.find(i => i.id === w.linkedInvoiceId);
+        if (inv) {
+          if (inv.invoiceNumber.toLowerCase().includes(query)) return true;
+          if (inv.items.some(it => it.imeis?.some(im => im.toLowerCase() === query || im.toLowerCase().includes(query)))) return true;
+        }
+      }
+      return false;
+    });
+
+    // 2. If no direct card match, search invoices directly by product IMEI or invoice number
+    if (!warrantyMatch) {
+      const matchedInvoice = invoices.find(inv => {
+        if (inv.invoiceNumber.toLowerCase() === query || inv.invoiceNumber.toLowerCase().includes(query)) return true;
+        return inv.items.some(it => it.imeis?.some(im => im.toLowerCase() === query || im.toLowerCase().includes(query)));
+      });
+
+      if (matchedInvoice) {
+        const matchedItem = matchedInvoice.items.find(it => 
+          it.imeis?.some(im => im.toLowerCase() === query || im.toLowerCase().includes(query))
+        ) || matchedInvoice.items[0];
+
+        const matchedImeiStr = matchedItem?.imeis?.find(im => im.toLowerCase() === query || im.toLowerCase().includes(query)) || matchedItem?.imeis?.[0] || matchedInvoice.invoiceNumber;
+        const warrMonths = matchedItem?.warrantyMonths ?? 12;
+        const purchaseDate = matchedInvoice.createdAt.slice(0, 10);
+        const expiryDateStr = computeExpiryDate(purchaseDate, warrMonths);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const expiry = new Date(expiryDateStr);
+        expiry.setHours(0, 0, 0, 0);
+
+        warrantyMatch = {
+          id: `warr_inv_${matchedInvoice.id}`,
+          serialNumber: matchedImeiStr,
+          productName: matchedItem?.productName || `Hóa đơn ${matchedInvoice.invoiceNumber}`,
+          customerName: matchedInvoice.customerName,
+          customerPhone: matchedInvoice.customerPhone,
+          purchaseDate,
+          warrantyMonths: warrMonths,
+          expiryDate: expiryDateStr,
+          status: expiry.getTime() < today.getTime() ? 'expired' : 'active',
+          notes: `Truy xuất theo IMEI sản phẩm thuộc Hoá đơn ${matchedInvoice.invoiceNumber}`,
+          linkedInvoiceId: matchedInvoice.id
+        };
+      }
     }
 
-    // Search Repair
+    if (warrantyMatch) {
+      setActiveSearchResult({ type: 'warranty', data: warrantyMatch });
+      setSearched(true);
+      return;
+    }
+
+    // 3. Search Repair Tickets
     const repairMatch = repairs.find(r => 
-      r.deviceSerial.toLowerCase() === query ||
+      r.deviceSerial.toLowerCase().includes(query) ||
+      r.ticketNumber.toLowerCase().includes(query) ||
       r.customerName.toLowerCase().includes(query) ||
       r.customerPhone.includes(query)
     );
-    
+
     if (repairMatch) {
-        setActiveSearchResult({ type: 'repair', data: repairMatch });
-        setSearched(true);
-        return;
+      setActiveSearchResult({ type: 'repair', data: repairMatch });
+      setSearched(true);
+      return;
     }
 
     setActiveSearchResult(null);
     setSearched(true);
+  };
+
+  // Use Barcode Scanner to quickly set portal search and search instantly
+  useBarcodeScanner((barcode) => {
+    setPortalSearch(barcode);
+    performWarrantyLookup(barcode);
   });
 
   const [processedBy, setProcessedBy] = useState<string>(currentUser?.fullName || '');
@@ -103,51 +157,23 @@ export default function WarrantyManager({
   const handlePortalCheck = (e: React.FormEvent) => {
     e.preventDefault();
     if (!portalSearch.trim()) return;
-
-    const query = portalSearch.trim().toLowerCase();
-
-    // Search Warranty
-    const warrantyMatch = warranties.find(w => 
-      w.serialNumber.toLowerCase() === query ||
-      w.customerName.toLowerCase().includes(query) ||
-      w.customerPhone.includes(query)
-    );
-
-    if (warrantyMatch) {
-       setActiveSearchResult({ type: 'warranty', data: warrantyMatch });
-       setSearched(true);
-       return;
-    }
-
-    // Search Repair
-    const repairMatch = repairs.find(r => 
-      r.deviceSerial.toLowerCase() === query ||
-      r.customerName.toLowerCase().includes(query) ||
-      r.customerPhone.includes(query)
-    );
-    
-    if (repairMatch) {
-        setActiveSearchResult({ type: 'repair', data: repairMatch });
-        setSearched(true);
-        return;
-    }
-
-    setActiveSearchResult(null);
-    setSearched(true);
+    performWarrantyLookup(portalSearch);
   };
 
   const formatVND = (value: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
   };
 
-  // Helper to compute remaining days from today (2026-06-13)
+  // Helper to compute remaining days from today
   const getWarrantyStatus = (expiryDateStr: string) => {
-    const today = new Date('2026-06-13'); // anchor current time
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const expiry = new Date(expiryDateStr);
+    expiry.setHours(0, 0, 0, 0);
     const timeDiff = expiry.getTime() - today.getTime();
     const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
 
-    if (daysDiff > 0) {
+    if (daysDiff >= 0) {
       return {
         isUnderWarranty: true,
         daysLeft: daysDiff,
@@ -166,19 +192,29 @@ export default function WarrantyManager({
 
   // Directory filter processing
   const filteredWarranties = useMemo(() => {
+    const q = dirSearch.trim().toLowerCase();
     return warranties.filter(w => {
+      const linkedInvoice = w.linkedInvoiceId ? invoices.find(i => i.id === w.linkedInvoiceId) : null;
+      const imeiInInvoice = linkedInvoice?.items.some(it => it.imeis?.some(im => im.toLowerCase().includes(q)));
+
       const matchText = 
-        w.serialNumber.toLowerCase().includes(dirSearch.toLowerCase()) ||
-        w.productName.toLowerCase().includes(dirSearch.toLowerCase()) ||
-        w.customerName.toLowerCase().includes(dirSearch.toLowerCase()) ||
-        w.customerPhone.includes(dirSearch);
+        !q ||
+        w.serialNumber.toLowerCase().includes(q) ||
+        w.productName.toLowerCase().includes(q) ||
+        w.customerName.toLowerCase().includes(q) ||
+        w.customerPhone.includes(q) ||
+        (linkedInvoice && linkedInvoice.invoiceNumber.toLowerCase().includes(q)) ||
+        imeiInInvoice;
 
       if (statusFilter === 'all') return matchText;
-      const today = new Date('2026-06-13');
-      const isExpired = new Date(w.expiryDate).getTime() < today.getTime();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const expiry = new Date(w.expiryDate);
+      expiry.setHours(0, 0, 0, 0);
+      const isExpired = expiry.getTime() < today.getTime();
       return matchText && (statusFilter === 'expired' ? isExpired : !isExpired);
     }).sort((a,b) => b.id.localeCompare(a.id));
-  }, [warranties, dirSearch, statusFilter]);
+  }, [warranties, invoices, dirSearch, statusFilter]);
 
   // Handle Manual Custom Warranty Creation
   const handleCreateWarranty = (e: React.FormEvent) => {
@@ -196,8 +232,10 @@ export default function WarrantyManager({
 
     const calculatedExpiryStr = computeExpiryDate(newPurchaseDate, Number(newMonths));
     const calculatedExpiry = new Date(calculatedExpiryStr);
+    calculatedExpiry.setHours(0, 0, 0, 0);
 
-    const today = new Date('2026-06-13');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const isExpired = calculatedExpiry.getTime() < today.getTime();
 
     const cardPayload: WarrantyCard = {
@@ -282,31 +320,35 @@ export default function WarrantyManager({
                       {(() => {
                          const w = activeSearchResult.data as WarrantyCard;
                          const coverage = getWarrantyStatus(w.expiryDate);
+                         const linkedInvoice = w.linkedInvoiceId ? invoices.find(i => i.id === w.linkedInvoiceId) : null;
+
                          return (
                            <>
                              <div className="flex justify-between items-start gap-4">
                                <div 
                                  className={w.linkedInvoiceId ? 'cursor-pointer group' : ''}
                                  onClick={() => {
-                                   if (w.linkedInvoiceId) {
-                                     const inv = invoices.find(i => i.id === w.linkedInvoiceId);
-                                     if (inv) setViewInvoiceModal(inv);
-                                   }
+                                   if (linkedInvoice) setViewInvoiceModal(linkedInvoice);
                                  }}
                                >
                                  <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-sm">KÍCH HOẠT HỢP LỆ</span>
-                                 <h4 className={`font-bold text-lg mt-1 line-clamp-1 ${w.linkedInvoiceId ? 'text-indigo-600 group-hover:text-indigo-700 underline decoration-indigo-200 underline-offset-2' : 'text-slate-900'}`}>
+                                 <h4 className={`font-bold text-lg mt-1 ${w.linkedInvoiceId ? 'text-indigo-600 group-hover:text-indigo-700 underline decoration-indigo-200 underline-offset-2' : 'text-slate-900'}`}>
                                    {w.productName}
                                  </h4>
+                                 <p className="text-xs font-mono font-bold text-slate-600 mt-1 flex items-center gap-1.5">
+                                   <span>Mã S/N - IMEI:</span>
+                                   <span className="bg-slate-100 text-indigo-700 px-1.5 py-0.5 rounded border border-slate-200">{w.serialNumber}</span>
+                                 </p>
                                  {w.linkedInvoiceId && (
-                                    <p className="text-[10px] text-indigo-500 mt-1 italic">👆 Nhấn vào đây để xem chi tiết hoá đơn / cấu hình</p>
+                                    <p className="text-[10px] text-indigo-500 mt-1 italic">👆 Nhấn vào đây để xem chi tiết hoá đơn gốc / cấu hình bán ra</p>
                                  )}
                                </div>
-                               <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${coverage.color}`}>
+                               <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap ${coverage.color}`}>
                                  {coverage.text}
                                </span>
                              </div>
-                             <div className="border-t border-slate-100 pt-4 grid grid-cols-2 gap-4 text-xs">
+
+                             <div className="border-t border-slate-100 pt-3 grid grid-cols-2 gap-4 text-xs">
                                <div className="space-y-1">
                                  <span className="text-slate-400 font-semibold block uppercase text-[10px]">THÔNG TIN KHÁCH HÀNG</span>
                                  <p className="font-bold text-slate-800 flex items-center gap-1"><UserIcon className="w-3.5 h-3.5 text-slate-400" /> {w.customerName}</p>
@@ -317,13 +359,71 @@ export default function WarrantyManager({
                                </div>
                                <div className="space-y-1">
                                  <span className="text-slate-400 font-semibold block uppercase text-[10px]">MỐC THỜI GIAN</span>
-                                 <p className="text-slate-700 flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-slate-400" /> Nhận máy: {w.purchaseDate}</p>
+                                 <p className="text-slate-700 flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-slate-400" /> Ngày mua: {w.purchaseDate}</p>
                                  <p className="text-slate-700 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-slate-400" /> Hết hạn: {w.expiryDate}</p>
                                </div>
                              </div>
+
+                             {/* Multi-product invoice breakdown */}
+                             {linkedInvoice && linkedInvoice.items && linkedInvoice.items.length > 0 && (
+                               <div className="border-t border-slate-100 pt-3 mt-1">
+                                 <div className="flex justify-between items-center mb-2">
+                                   <span className="text-[11px] font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1">
+                                     <FileCheck className="w-3.5 h-3.5 text-indigo-600" />
+                                     Danh sách sản phẩm trong Hóa đơn #{linkedInvoice.invoiceNumber} ({linkedInvoice.items.length} mặt hàng):
+                                   </span>
+                                   <button
+                                     type="button"
+                                     onClick={() => setViewInvoiceModal(linkedInvoice)}
+                                     className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded cursor-pointer"
+                                   >
+                                     Xem hoá đơn
+                                   </button>
+                                 </div>
+
+                                 <div className="bg-slate-50 rounded-xl p-3 space-y-2 border border-slate-200/80 max-h-52 overflow-y-auto divide-y divide-slate-200/60">
+                                   {linkedInvoice.items.map((it, idx) => (
+                                     <div key={idx} className="pt-2 first:pt-0 flex justify-between items-start text-xs">
+                                       <div className="pr-2">
+                                         <p className="font-bold text-slate-800">{it.productName}</p>
+                                         {it.imeis && it.imeis.length > 0 && (
+                                           <div className="mt-1 flex flex-wrap gap-1">
+                                             <span className="text-[9.5px] font-bold text-slate-400">IMEIs:</span>
+                                             {it.imeis.map((im, imIdx) => {
+                                               const isQueried = portalSearch.trim() && im.toLowerCase().includes(portalSearch.trim().toLowerCase());
+                                               return (
+                                                 <span 
+                                                   key={imIdx} 
+                                                   className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded border ${
+                                                     isQueried 
+                                                       ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold animate-pulse' 
+                                                       : 'bg-white text-indigo-700 border-indigo-100'
+                                                   }`}
+                                                 >
+                                                   {im}
+                                                 </span>
+                                               );
+                                             })}
+                                           </div>
+                                         )}
+                                       </div>
+                                       <div className="text-right whitespace-nowrap">
+                                         <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
+                                           SL: {it.quantity}
+                                         </span>
+                                         <p className="text-[10px] font-bold text-indigo-600 mt-1">
+                                           BH: {it.warrantyMonths ? formatWarrantyText(it.warrantyMonths) : 'N/A'}
+                                         </p>
+                                       </div>
+                                     </div>
+                                   ))}
+                                 </div>
+                               </div>
+                             )}
+
                              {w.notes && (
                                <div className="bg-slate-50 p-2.5 rounded-lg text-[11px] text-slate-500 italic border border-slate-100">
-                                 Ghi chú điều khoản: {w.notes}
+                                 Ghi chú: {w.notes}
                                </div>
                              )}
                            </>
@@ -461,7 +561,7 @@ export default function WarrantyManager({
                   <tr key={card.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="py-4">
                       <div 
-                        className={`max-w-xs ${isClickable ? 'cursor-pointer hover:bg-slate-100/50 p-1.5 -ml-1.5 rounded-lg transition group' : ''}`}
+                        className={`max-w-md ${isClickable ? 'cursor-pointer hover:bg-slate-100/50 p-1.5 -ml-1.5 rounded-lg transition group' : ''}`}
                         onClick={() => {
                           if (matchedInvoice) {
                             setViewInvoiceModal(matchedInvoice);
@@ -470,14 +570,26 @@ export default function WarrantyManager({
                           }
                         }}
                       >
-                        <p className={`font-bold truncate ${isClickable ? 'text-indigo-600 group-hover:text-indigo-700' : 'text-slate-800'}`}>
+                        <p className={`font-bold ${isClickable ? 'text-indigo-600 group-hover:text-indigo-700' : 'text-slate-800'}`}>
                           {card.productName}
-                          {matchedInvoice && <Sparkles className="w-3 h-3 inline-block ml-1 text-indigo-400" />}
-                          {matchedRepair && <Wrench className="w-3 h-3 inline-block ml-1 text-emerald-400" />}
+                          {matchedInvoice && <Sparkles className="w-3.5 h-3.5 inline-block ml-1 text-indigo-500" />}
+                          {matchedRepair && <Wrench className="w-3.5 h-3.5 inline-block ml-1 text-emerald-500" />}
                         </p>
-                        <span className="text-[10px] uppercase font-mono font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-sm mt-1 inline-block">
-                          {card.serialNumber}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="text-[10px] uppercase font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm border border-slate-200">
+                            {card.serialNumber}
+                          </span>
+                          {matchedInvoice && (
+                            <span className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-sm border border-indigo-100">
+                              HĐ #{matchedInvoice.invoiceNumber} ({matchedInvoice.items.length} sp)
+                            </span>
+                          )}
+                        </div>
+                        {matchedInvoice && matchedInvoice.items.length > 1 && (
+                          <p className="text-[10px] text-slate-500 font-medium line-clamp-1 mt-1">
+                            Gồm: {matchedInvoice.items.map(i => i.productName).join(', ')}
+                          </p>
+                        )}
                       </div>
                     </td>
                     <td className="py-4">
@@ -494,7 +606,19 @@ export default function WarrantyManager({
                       <p className="text-xs text-slate-700">Ngày hết hạn: <span className="font-bold text-slate-900">{card.expiryDate}</span></p>
                     </td>
                     <td className="py-4 text-xs font-bold text-indigo-600">
-                      {formatWarrantyText(card.warrantyMonths)}
+                      {(() => {
+                        if (matchedInvoice && matchedInvoice.items && matchedInvoice.items.length > 0) {
+                          const minW = matchedInvoice.items.reduce((min, i) => Math.min(min, i.warrantyMonths ?? 0), matchedInvoice.items[0]?.warrantyMonths ?? 0);
+                          const maxW = matchedInvoice.items.reduce((max, i) => Math.max(max, i.warrantyMonths ?? 0), 0);
+                          if (minW !== maxW && minW > 0) {
+                            return `${formatWarrantyText(minW)} - ${formatWarrantyText(maxW)}`;
+                          }
+                          if (minW > 0) {
+                            return formatWarrantyText(minW);
+                          }
+                        }
+                        return formatWarrantyText(card.warrantyMonths);
+                      })()}
                     </td>
                     <td className="py-4 text-right">
                       <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${statusInfo.color}`}>
@@ -741,10 +865,17 @@ export default function WarrantyManager({
                     <tbody className="divide-y divide-slate-100">
                       {viewInvoiceModal.items.map((it, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-semibold text-slate-800 max-w-[200px] truncate" title={it.productName}>
-                            {it.productName}
+                          <td className="py-3 px-4 font-semibold text-slate-800">
+                            <p className="font-bold text-slate-900">{it.productName}</p>
                             {it.imeis && it.imeis.length > 0 && (
-                              <p className="text-[10px] text-indigo-700 font-bold mt-0.5">IMEIs: {it.imeis.join(', ')}</p>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                <span className="text-[10px] text-slate-400 font-bold">IMEIs:</span>
+                                {it.imeis.map((im, imIdx) => (
+                                  <span key={imIdx} className="text-[10px] font-mono bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
+                                    {im}
+                                  </span>
+                                ))}
+                              </div>
                             )}
                           </td>
                           <td className="py-3 px-4 text-center font-bold text-slate-600">{it.quantity}</td>
