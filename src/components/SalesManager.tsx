@@ -195,9 +195,10 @@ export default function SalesManager({
     }
   });
 
-  // Filter products based on search and category selection
+  // Filter products based on search and category selection (newest first)
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    const newestProducts = [...products].reverse();
+    return newestProducts.filter(p => {
       const term = productSearch.toLowerCase();
       const matchesImeiInStock = p.hasImei && imeis.some(i => i.productId === p.id && i.status === 'in_stock' && i.imei.toLowerCase().includes(term));
       

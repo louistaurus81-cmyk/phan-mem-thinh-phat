@@ -36,6 +36,7 @@ interface BuildItem {
   productId: string;
   productName: string;
   selectedImei?: string;
+  selectedImeis?: string[];
   price: number;
   originalPrice: number;
   quantity: number;
@@ -83,7 +84,12 @@ export default function PCBuilder({
   );
 
   // IMEI Selection state
-  const [selectingImeiFor, setSelectingImeiFor] = useState<Product | null>(null);
+  const [selectingImeiFor, setSelectingImeiFor] = useState<{
+    product: Product;
+    slotId: string;
+    maxQty: number;
+  } | null>(null);
+  const [tempSelectedImeis, setTempSelectedImeis] = useState<string[]>([]);
 
   // Search/selection states for picking products
   const [activeSlotId, setActiveSlotId] = useState<string | null>(null);
@@ -103,7 +109,13 @@ export default function PCBuilder({
   
   // Overall bill attributes
   const [discountPercent, setDiscountPercent] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState<'Tiền mặt' | 'Chuyển khoản' | 'Thẻ'>('Chuyển khoản');
+  const [paymentMethod, setPaymentMethod] = useState<'Tiền mặt' | 'Chuyển khoản' | 'Thẻ' | 'Ghi nợ'>('Chuyển khoản');
+  const [debtAmount, setDebtAmount] = useState<number>(0);
+  const [debtDueDate, setDebtDueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  });
   const [buildNote, setBuildNote] = useState('');
   
   // Printable results overview modal modal trigger
@@ -310,7 +322,7 @@ export default function PCBuilder({
     setBuild(prev => 
       prev.map(item => 
         item.slotId === slotId 
-          ? { ...item, productId: '', productName: '', selectedImei: '', price: 0, originalPrice: 0, quantity: 1, warrantyMonths: 12 }
+          ? { ...item, productId: '', productName: '', selectedImei: '', selectedImeis: [], price: 0, originalPrice: 0, quantity: 1, warrantyMonths: 12 }
           : item
       )
     );
@@ -327,9 +339,79 @@ export default function PCBuilder({
     setManualWarranty('36');
   };
 
+  // Open IMEI selection modal for a product in a slot
+  const handleOpenImeiModalForProduct = (slotId: string, product: Product) => {
+    const slotItem = build.find(it => it.slotId === slotId);
+    const targetQty = slotItem ? slotItem.quantity : 1;
+    
+    const existingImeis = (slotItem && slotItem.productId === product.id && slotItem.selectedImeis)
+      ? slotItem.selectedImeis
+      : (slotItem?.selectedImei ? [slotItem.selectedImei] : []);
+
+    const inStockForProd = imeis.filter(i => i.productId === product.id && i.status === 'in_stock').map(i => i.imei);
+    
+    let initialImeis = existingImeis.filter(im => inStockForProd.includes(im));
+    if (initialImeis.length < targetQty) {
+      const remainingNeeded = targetQty - initialImeis.length;
+      const unusedInStock = inStockForProd.filter(im => !initialImeis.includes(im));
+      initialImeis = [...initialImeis, ...unusedInStock.slice(0, remainingNeeded)];
+    } else if (initialImeis.length > targetQty) {
+      initialImeis = initialImeis.slice(0, targetQty);
+    }
+
+    setSelectingImeiFor({ product, slotId, maxQty: targetQty });
+    setTempSelectedImeis(initialImeis);
+  };
+
+  const handleToggleImeiSelection = (imeiStr: string, maxQty: number) => {
+    setTempSelectedImeis(prev => {
+      if (prev.includes(imeiStr)) {
+        return prev.filter(x => x !== imeiStr);
+      } else {
+        if (maxQty === 1) {
+          return [imeiStr];
+        }
+        if (prev.length >= maxQty) {
+          alert(`Bạn đã chọn đủ ${maxQty} IMEI tương ứng số lượng ${maxQty}. Vui lòng bỏ chọn 1 IMEI trước nếu muốn đổi IMEI khác.`);
+          return prev;
+        }
+        return [...prev, imeiStr];
+      }
+    });
+  };
+
+  const handleConfirmImeiSelection = () => {
+    if (!selectingImeiFor) return;
+    const { product, slotId } = selectingImeiFor;
+
+    setBuild(prev => 
+      prev.map(item => 
+        item.slotId === slotId 
+          ? { 
+              ...item, 
+              productId: product.id, 
+              productName: product.name, 
+              selectedImeis: tempSelectedImeis,
+              selectedImei: tempSelectedImeis[0] || '',
+              price: product.price, 
+              originalPrice: product.price, 
+              warrantyMonths: product.warrantyMonths || 36 
+            }
+          : item
+      )
+    );
+    setSelectingImeiFor(null);
+    setActiveSlotId(null);
+  };
+
   // Confirm slot item selection
-  const handleSelectProduct = (product: Product, imei?: string) => {
+  const handleSelectProduct = (product: Product) => {
     if (!activeSlotId) return;
+
+    if (product.hasImei) {
+      handleOpenImeiModalForProduct(activeSlotId, product);
+      return;
+    }
     
     setBuild(prev => 
       prev.map(item => 
@@ -338,7 +420,8 @@ export default function PCBuilder({
               ...item, 
               productId: product.id, 
               productName: product.name, 
-              selectedImei: imei,
+              selectedImeis: [],
+              selectedImei: '',
               price: product.price, 
               originalPrice: product.price, 
               quantity: 1, 
@@ -382,11 +465,35 @@ export default function PCBuilder({
   // Edit build item property directly (price, warranty, quantity)
   const handleUpdateItemProperty = (slotId: string, property: 'price' | 'warrantyMonths' | 'quantity', value: number) => {
     setBuild(prev => 
-      prev.map(item => 
-        item.slotId === slotId 
-          ? { ...item, [property]: value }
-          : item
-      )
+      prev.map(item => {
+        if (item.slotId !== slotId) return item;
+
+        if (property === 'quantity') {
+          const newQty = Math.max(1, value);
+          let newSelectedImeis = item.selectedImeis ? [...item.selectedImeis] : (item.selectedImei ? [item.selectedImei] : []);
+          const prod = products.find(p => p.id === item.productId);
+          
+          if (prod?.hasImei) {
+            const inStockImeis = imeis.filter(i => i.productId === prod.id && i.status === 'in_stock').map(i => i.imei);
+            if (newSelectedImeis.length > newQty) {
+              newSelectedImeis = newSelectedImeis.slice(0, newQty);
+            } else if (newSelectedImeis.length < newQty) {
+              const unusedInStock = inStockImeis.filter(im => !newSelectedImeis.includes(im));
+              const needed = newQty - newSelectedImeis.length;
+              newSelectedImeis = [...newSelectedImeis, ...unusedInStock.slice(0, needed)];
+            }
+          }
+
+          return { 
+            ...item, 
+            quantity: newQty,
+            selectedImeis: newSelectedImeis,
+            selectedImei: newSelectedImeis[0] || ''
+          };
+        }
+
+        return { ...item, [property]: value };
+      })
     );
   };
 
@@ -501,15 +608,31 @@ export default function PCBuilder({
       }
     }
 
+    if (!isQuoteOnly && paymentMethod === 'Ghi nợ') {
+      if (customerMode === 'guest' && (!customerName.trim() || customerName === 'Khách xem báo giá' || !customerPhone.trim())) {
+        alert('Giao dịch Ghi nợ (Công nợ) yêu cầu thông tin Tên và SĐT khách hàng! Vui lòng nhập thông tin khách hàng hoặc chọn từ danh bạ CRM.');
+        return;
+      }
+    }
+
     // Convert build items into invoice invoiceItem mapping
-    const invoiceItems: InvoiceItem[] = filledItems.map(item => ({
-      productId: item.productId || `custom_${item.slotId}`,
-      productName: `[PC Build - ${item.slotName}] ${item.productName}`,
-      quantity: item.quantity,
-      price: item.price,
-      warrantyMonths: item.warrantyMonths,
-      imeis: item.selectedImei ? [item.selectedImei] : undefined
-    }));
+    const invoiceItems: InvoiceItem[] = filledItems.map(item => {
+      const selectedList = item.selectedImeis && item.selectedImeis.length > 0
+        ? item.selectedImeis
+        : (item.selectedImei ? [item.selectedImei] : undefined);
+
+      return {
+        productId: item.productId || `custom_${item.slotId}`,
+        productName: `[PC Build - ${item.slotName}] ${item.productName}`,
+        quantity: item.quantity,
+        price: item.price,
+        warrantyMonths: item.warrantyMonths,
+        imeis: selectedList
+      };
+    });
+
+    const isDebt = paymentMethod === 'Ghi nợ';
+    const finalDebtAmt = isDebt ? (debtAmount > 0 ? debtAmount : totalBuildValue) : undefined;
 
     // Form note indicating custom PC configuration list
     const parsedNote = `PC BUILD QUOTE & WARRANTY COMBO. ${discountPercent > 0 ? `Chiết khấu ${discountPercent}%. ` : ''}${buildNote ? `Ghi chú: ${buildNote}` : ''}`;
@@ -524,8 +647,10 @@ export default function PCBuilder({
       totalAmount: totalBuildValue,
       paymentMethod,
       createdAt: new Date().toISOString(),
-      note: isQuoteOnly ? `[BẢN BÁO GIÁ] ${parsedNote}` : parsedNote,
-      processedBy: currentUser?.fullName || 'Hệ thống THỊNH PHÁT'
+      note: isQuoteOnly ? `[BẢN BÁO GIÁ] ${parsedNote}` : parsedNote + (isDebt ? ` [Ghi nợ: ${formatVND(finalDebtAmt!)}, Hạn nợ: ${debtDueDate}]` : ''),
+      processedBy: currentUser?.fullName || 'Hệ thống THỊNH PHÁT',
+      debtAmount: !isQuoteOnly && isDebt ? finalDebtAmt : undefined,
+      debtDueDate: !isQuoteOnly && isDebt ? debtDueDate : undefined
     };
 
     // Save and commit this build invoice into sales lists only if not a quote
@@ -602,7 +727,36 @@ export default function PCBuilder({
                         {isSelected ? (
                           <div className="mt-1">
                             <h4 className="font-bold text-slate-900 text-xs truncate">{item.productName}</h4>
-                            {item.selectedImei && <p className="text-[10px] text-indigo-700 font-mono font-bold">IMEI: {item.selectedImei}</p>}
+                            {(() => {
+                              const matchedProd = products.find(p => p.id === item.productId);
+                              const isImeiProd = matchedProd?.hasImei || (item.selectedImeis && item.selectedImeis.length > 0) || item.selectedImei;
+                              if (!isImeiProd) return null;
+
+                              const selectedList = item.selectedImeis && item.selectedImeis.length > 0
+                                ? item.selectedImeis
+                                : (item.selectedImei ? [item.selectedImei] : []);
+
+                              const isFullySelected = selectedList.length === item.quantity;
+
+                              return (
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => matchedProd && handleOpenImeiModalForProduct(item.slotId, matchedProd)}
+                                    className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition cursor-pointer ${
+                                      isFullySelected
+                                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                                        : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                                    }`}
+                                  >
+                                    <span>
+                                      IMEI ({selectedList.length}/{item.quantity}): {selectedList.length > 0 ? selectedList.join(', ') : 'Chưa chọn'}
+                                    </span>
+                                    <Edit3 className="w-3 h-3 text-indigo-500" />
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </div>
                         ) : (
                           <p onClick={() => handleOpenPicker(item.slotId)} className="text-slate-400 italic text-[11px] mt-1 cursor-pointer hover:text-indigo-600 hover:underline">Chưa cắm linh kiện. Bấm để lắp ráp...</p>
@@ -731,14 +885,53 @@ export default function PCBuilder({
                 <span>Thanh toán bằng:</span>
                 <select 
                   value={paymentMethod}
-                  onChange={e => setPaymentMethod(e.target.value as any)}
+                  onChange={e => {
+                    const newMethod = e.target.value as any;
+                    setPaymentMethod(newMethod);
+                    if (newMethod === 'Ghi nợ' && (debtAmount === 0 || debtAmount > totalBuildValue)) {
+                      setDebtAmount(totalBuildValue);
+                    }
+                  }}
                   className="bg-slate-800 text-white rounded-lg text-xs font-semibold p-1.5 focus:outline-hidden border border-slate-700"
                 >
                   <option value="Chuyển khoản">Chuyển khoản</option>
                   <option value="Tiền mặt">Tiền mặt</option>
                   <option value="Thẻ">Thẻ ATM/Vùng thẻ</option>
+                  <option value="Ghi nợ">📝 Ghi nợ (Công nợ)</option>
                 </select>
               </div>
+
+              {paymentMethod === 'Ghi nợ' && (
+                <div className="bg-slate-800/80 p-3 rounded-xl border border-amber-500/40 space-y-2.5 text-xs mt-2">
+                  <div className="flex justify-between items-center text-amber-400 font-bold text-[11px]">
+                    <span>📝 Giao Dịch Ghi Nợ (Công Nợ)</span>
+                    <span className="text-[10px] text-amber-300/80 font-normal">Tự động đồng bộ Sổ Nợ</span>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold mb-1">Số tiền ghi nợ (VND):</label>
+                    <input 
+                      type="number"
+                      value={debtAmount}
+                      onChange={e => setDebtAmount(Number(e.target.value))}
+                      placeholder={totalBuildValue.toString()}
+                      className="w-full bg-slate-900 border border-slate-700 text-amber-400 font-bold text-xs p-2 rounded-lg focus:outline-hidden focus:border-amber-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-medium">
+                      <span>Khách trả trước: <span className="font-bold text-emerald-400">{formatVND(Math.max(0, totalBuildValue - (debtAmount || 0)))}</span></span>
+                      <span>Tổng đơn: {formatVND(totalBuildValue)}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold mb-1">Hạn thanh toán công nợ:</label>
+                    <input 
+                      type="date"
+                      value={debtDueDate}
+                      onChange={e => setDebtDueDate(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 text-white text-xs p-2 rounded-lg focus:outline-hidden focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* GRAND TOTAL */}
@@ -1309,34 +1502,102 @@ export default function PCBuilder({
       <AnimatePresence>
         {selectingImeiFor && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setSelectingImeiFor(null)} />
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-xs" onClick={() => setSelectingImeiFor(null)} />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-xl p-6 relative w-full max-w-lg z-10"
+              className="bg-white rounded-3xl shadow-2xl p-6 relative w-full max-w-lg z-10 border border-slate-200"
             >
-              <div className="flex justify-between items-center mb-4">
-                 <h2 className="text-lg font-bold">Chọn IMEI cho {selectingImeiFor.name}</h2>
-                 <button onClick={() => setSelectingImeiFor(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+              <div className="flex justify-between items-start mb-4 pb-3 border-b border-slate-100">
+                 <div>
+                   <h2 className="text-base font-extrabold text-slate-900">Chọn IMEI cho {selectingImeiFor.product.name}</h2>
+                   <p className="text-xs text-slate-500 font-medium mt-0.5">
+                     Số lượng linh kiện: <span className="font-bold text-slate-800">{selectingImeiFor.maxQty}</span> | Đã chọn: <span className="font-bold text-indigo-600">{tempSelectedImeis.length}/{selectingImeiFor.maxQty} IMEI</span>
+                   </p>
+                 </div>
+                 <button onClick={() => setSelectingImeiFor(null)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 cursor-pointer"><X className="w-5 h-5"/></button>
               </div>
-              <div className="max-h-80 overflow-y-auto space-y-2">
-                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').map(i => (
-                  <button
-                    key={i.id}
-                    onClick={() => {
-                      handleSelectProduct(selectingImeiFor, i.imei);
-                      setSelectingImeiFor(null);
-                    }}
-                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 transition"
-                  >
-                    <span className="font-mono font-bold text-slate-800">{i.imei}</span>
-                  </button>
-                ))}
-                {imeis.filter(i => i.productId === selectingImeiFor.id && i.status === 'in_stock').length === 0 && (
-                  <p className="text-center text-slate-500 py-4">Không có IMEI nào đang sẵn kho.</p>
-                )}
-              </div>
+
+              {/* Action shortcuts */}
+              {(() => {
+                const inStockList = imeis.filter(i => i.productId === selectingImeiFor.product.id && i.status === 'in_stock');
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                      <span className="text-xs text-slate-600 font-medium">Kho hiện có: <strong className="text-slate-900">{inStockList.length} IMEI</strong></span>
+                      <div className="flex gap-2">
+                        {inStockList.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const autoSelect = inStockList.slice(0, selectingImeiFor.maxQty).map(i => i.imei);
+                              setTempSelectedImeis(autoSelect);
+                            }}
+                            className="text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 transition cursor-pointer"
+                          >
+                            Tự chọn {Math.min(selectingImeiFor.maxQty, inStockList.length)} IMEI
+                          </button>
+                        )}
+                        {tempSelectedImeis.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setTempSelectedImeis([])}
+                            className="text-[11px] font-bold text-slate-500 hover:bg-slate-200 px-2 py-1 rounded-lg transition cursor-pointer"
+                          >
+                            Bỏ chọn
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                      {inStockList.map(i => {
+                        const isChecked = tempSelectedImeis.includes(i.imei);
+                        return (
+                          <div
+                            key={i.id}
+                            onClick={() => handleToggleImeiSelection(i.imei, selectingImeiFor.maxQty)}
+                            className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition text-xs ${
+                              isChecked
+                                ? 'bg-indigo-50/80 border-indigo-500 text-indigo-950 font-bold shadow-xs'
+                                : 'bg-white border-slate-200 hover:border-indigo-200 text-slate-700'
+                            }`}
+                          >
+                            <span className="font-mono font-bold tracking-wide">{i.imei}</span>
+                            <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition ${
+                              isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 bg-white'
+                            }`}>
+                              {isChecked && <ShieldCheck className="w-3.5 h-3.5" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {inStockList.length === 0 && (
+                        <p className="text-center text-slate-400 py-6 text-xs">Không có IMEI nào đang sẵn kho cho sản phẩm này.</p>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 justify-end pt-3 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setSelectingImeiFor(null)}
+                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold cursor-pointer"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmImeiSelection}
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer shadow-md"
+                      >
+                        Xác nhận ({tempSelectedImeis.length} IMEI)
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </motion.div>
           </div>
         )}

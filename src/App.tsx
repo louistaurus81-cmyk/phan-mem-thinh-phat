@@ -438,7 +438,7 @@ export default function App() {
       ...newProd,
       id: `p_${Date.now()}`
     };
-    saveProducts([...products, payload]);
+    saveProducts([payload, ...products]);
     logActivity('inventory', 'Thêm sản phẩm mới vào kho', `Tên: ${newProd.name} (SKU: ${newProd.sku || '---'}) - Giá bán: ${newProd.price.toLocaleString('vi-VN')}đ - Tồn ban đầu: ${newProd.stock}`, newProd.price, 'info');
   };
 

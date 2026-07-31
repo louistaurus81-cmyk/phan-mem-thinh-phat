@@ -287,6 +287,7 @@ export default function DebtManager({
 
     const result: {
       payment: DebtPayment;
+      indexNumber?: number;
       indexLabel: string;
       remainingAfter: number;
       isInitial?: boolean;
@@ -303,7 +304,7 @@ export default function DebtManager({
         note: inv 
           ? `Thanh toán ban đầu cho HĐ #${inv.invoiceNumber}` 
           : 'Thanh toán 1 phần lúc tạo công nợ',
-        collectedBy: inv?.createdBy || 'Thu ngân / POS',
+        collectedBy: inv?.processedBy || 'Thu ngân / POS',
         paymentMethod: (inv?.paymentMethod as any) || 'Tiền mặt'
       };
 
@@ -341,6 +342,7 @@ export default function DebtManager({
     const list: {
       debt: Debt;
       payment: DebtPayment;
+      indexNumber?: number;
       indexLabel: string;
       remainingAfter: number;
       isInitial?: boolean;
