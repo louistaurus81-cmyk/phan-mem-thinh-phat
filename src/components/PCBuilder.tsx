@@ -342,35 +342,23 @@ export default function PCBuilder({
   // Open IMEI selection modal for a product in a slot
   const handleOpenImeiModalForProduct = (slotId: string, product: Product) => {
     const slotItem = build.find(it => it.slotId === slotId);
-    const targetQty = slotItem ? slotItem.quantity : 1;
     
     const existingImeis = (slotItem && slotItem.productId === product.id && slotItem.selectedImeis)
       ? slotItem.selectedImeis
       : (slotItem?.selectedImei ? [slotItem.selectedImei] : []);
 
     const inStockForProd = imeis.filter(i => i.productId === product.id && i.status === 'in_stock').map(i => i.imei);
-    
-    let initialImeis = existingImeis.filter(im => inStockForProd.includes(im));
-    if (initialImeis.length > targetQty) {
-      initialImeis = initialImeis.slice(0, targetQty);
-    }
+    const initialImeis = existingImeis.filter(im => inStockForProd.includes(im));
 
-    setSelectingImeiFor({ product, slotId, maxQty: targetQty });
+    setSelectingImeiFor({ product, slotId, maxQty: 9999 });
     setTempSelectedImeis(initialImeis);
   };
 
-  const handleToggleImeiSelection = (imeiStr: string, maxQty: number) => {
+  const handleToggleImeiSelection = (imeiStr: string) => {
     setTempSelectedImeis(prev => {
       if (prev.includes(imeiStr)) {
         return prev.filter(x => x !== imeiStr);
       } else {
-        if (maxQty === 1) {
-          return [imeiStr];
-        }
-        if (prev.length >= maxQty) {
-          alert(`Bạn đã chọn đủ ${maxQty} IMEI tương ứng số lượng ${maxQty}. Vui lòng bỏ chọn 1 IMEI trước nếu muốn đổi IMEI khác.`);
-          return prev;
-        }
         return [...prev, imeiStr];
       }
     });
@@ -379,6 +367,7 @@ export default function PCBuilder({
   const handleConfirmImeiSelection = () => {
     if (!selectingImeiFor) return;
     const { product, slotId } = selectingImeiFor;
+    const newQty = Math.max(1, tempSelectedImeis.length);
 
     setBuild(prev => 
       prev.map(item => 
@@ -389,6 +378,7 @@ export default function PCBuilder({
               productName: product.name, 
               selectedImeis: tempSelectedImeis,
               selectedImei: tempSelectedImeis[0] || '',
+              quantity: newQty,
               price: product.price, 
               originalPrice: product.price, 
               warrantyMonths: product.warrantyMonths || 36 
@@ -1504,7 +1494,8 @@ export default function PCBuilder({
                  <div>
                    <h2 className="text-base font-extrabold text-slate-900">Chọn IMEI cho {selectingImeiFor.product.name}</h2>
                    <p className="text-xs text-slate-500 font-medium mt-0.5">
-                     Số lượng linh kiện: <span className="font-bold text-slate-800">{selectingImeiFor.maxQty}</span> | Đã chọn: <span className="font-bold text-indigo-600">{tempSelectedImeis.length}/{selectingImeiFor.maxQty} IMEI</span>
+                     Đã chọn: <span className="font-bold text-indigo-600">{tempSelectedImeis.length} IMEI</span>
+                     <span className="text-slate-400 font-normal ml-1.5">(Số lượng linh kiện sẽ tự động là {Math.max(1, tempSelectedImeis.length)})</span>
                    </p>
                  </div>
                  <button onClick={() => setSelectingImeiFor(null)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 cursor-pointer"><X className="w-5 h-5"/></button>
@@ -1518,6 +1509,15 @@ export default function PCBuilder({
                     <div className="flex items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                       <span className="text-xs text-slate-600 font-medium">Kho hiện có: <strong className="text-slate-900">{inStockList.length} IMEI</strong></span>
                       <div className="flex gap-2">
+                        {inStockList.length > 0 && tempSelectedImeis.length < inStockList.length && (
+                          <button
+                            type="button"
+                            onClick={() => setTempSelectedImeis(inStockList.map(x => x.imei))}
+                            className="text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 transition cursor-pointer"
+                          >
+                            Chọn tất cả ({inStockList.length})
+                          </button>
+                        )}
                         {tempSelectedImeis.length > 0 && (
                           <button
                             type="button"
@@ -1536,7 +1536,7 @@ export default function PCBuilder({
                         return (
                           <div
                             key={i.id}
-                            onClick={() => handleToggleImeiSelection(i.imei, selectingImeiFor.maxQty)}
+                            onClick={() => handleToggleImeiSelection(i.imei)}
                             className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition text-xs ${
                               isChecked
                                 ? 'bg-indigo-50/80 border-indigo-500 text-indigo-950 font-bold shadow-xs'
