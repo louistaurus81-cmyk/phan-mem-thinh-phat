@@ -351,11 +351,7 @@ export default function PCBuilder({
     const inStockForProd = imeis.filter(i => i.productId === product.id && i.status === 'in_stock').map(i => i.imei);
     
     let initialImeis = existingImeis.filter(im => inStockForProd.includes(im));
-    if (initialImeis.length < targetQty) {
-      const remainingNeeded = targetQty - initialImeis.length;
-      const unusedInStock = inStockForProd.filter(im => !initialImeis.includes(im));
-      initialImeis = [...initialImeis, ...unusedInStock.slice(0, remainingNeeded)];
-    } else if (initialImeis.length > targetQty) {
+    if (initialImeis.length > targetQty) {
       initialImeis = initialImeis.slice(0, targetQty);
     }
 
@@ -474,13 +470,8 @@ export default function PCBuilder({
           const prod = products.find(p => p.id === item.productId);
           
           if (prod?.hasImei) {
-            const inStockImeis = imeis.filter(i => i.productId === prod.id && i.status === 'in_stock').map(i => i.imei);
             if (newSelectedImeis.length > newQty) {
               newSelectedImeis = newSelectedImeis.slice(0, newQty);
-            } else if (newSelectedImeis.length < newQty) {
-              const unusedInStock = inStockImeis.filter(im => !newSelectedImeis.includes(im));
-              const needed = newQty - newSelectedImeis.length;
-              newSelectedImeis = [...newSelectedImeis, ...unusedInStock.slice(0, needed)];
             }
           }
 
@@ -1527,25 +1518,13 @@ export default function PCBuilder({
                     <div className="flex items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                       <span className="text-xs text-slate-600 font-medium">Kho hiện có: <strong className="text-slate-900">{inStockList.length} IMEI</strong></span>
                       <div className="flex gap-2">
-                        {inStockList.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const autoSelect = inStockList.slice(0, selectingImeiFor.maxQty).map(i => i.imei);
-                              setTempSelectedImeis(autoSelect);
-                            }}
-                            className="text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 transition cursor-pointer"
-                          >
-                            Tự chọn {Math.min(selectingImeiFor.maxQty, inStockList.length)} IMEI
-                          </button>
-                        )}
                         {tempSelectedImeis.length > 0 && (
                           <button
                             type="button"
                             onClick={() => setTempSelectedImeis([])}
-                            className="text-[11px] font-bold text-slate-500 hover:bg-slate-200 px-2 py-1 rounded-lg transition cursor-pointer"
+                            className="text-[11px] font-bold text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 transition cursor-pointer"
                           >
-                            Bỏ chọn
+                            Bỏ chọn tất cả
                           </button>
                         )}
                       </div>
