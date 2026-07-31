@@ -1148,7 +1148,7 @@ export default function PCBuilder({
                     {filteredProductsToChoose.map(p => (
                       <div 
                         key={p.id}
-                        onClick={() => p.hasImei ? setSelectingImeiFor(p) : handleSelectProduct(p)}
+                        onClick={() => handleSelectProduct(p)}
                         className="p-3 bg-slate-50 hover:bg-indigo-50/40 rounded-xl border border-slate-100 hover:border-indigo-100/50 flex justify-between items-center cursor-pointer transition text-xs"
                       >
                         <div className="min-w-0 pr-4">
