@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings, ProductIMEI, formatWarrantyText } from '../types';
 import { 
   Cpu, 
@@ -14,7 +14,11 @@ import {
   RefreshCw,
   PlusCircle,
   FileCheck2,
-  Calendar
+  Calendar,
+  Sliders,
+  Save,
+  Check,
+  Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -28,6 +32,7 @@ interface PCBuilderProps {
   onUpdateImeis: (imeis: ProductIMEI[]) => void;
   currentUser: { fullName: string; role: string };
   printSettings?: PrintSettings;
+  onUpdatePrintSettings?: (settings: PrintSettings) => void;
 }
 
 interface BuildItem {
@@ -66,7 +71,8 @@ export default function PCBuilder({
   onUpdateProductStock,
   onUpdateImeis,
   currentUser,
-  printSettings
+  printSettings,
+  onUpdatePrintSettings
 }: PCBuilderProps) {
   // Master build lists state
   const [build, setBuild] = useState<BuildItem[]>(
@@ -121,6 +127,126 @@ export default function PCBuilder({
   // Printable results overview modal modal trigger
   const [printedQuoteInvoice, setPrintedQuoteInvoice] = useState<boolean>(false);
   const [savedBuildInvoice, setSavedBuildInvoice] = useState<SalesInvoice | null>(null);
+
+  // Print Template Customizer States for Quotation Cum Warranty
+  const [showPrintCustomizer, setShowPrintCustomizer] = useState(false);
+  const [customQuoteTitle, setCustomQuoteTitle] = useState(
+    printSettings?.quoteTitle || 'BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH'
+  );
+  const [customStockStatusText, setCustomStockStatusText] = useState(
+    printSettings?.quoteStockStatusText || 'SẴN HÀNG'
+  );
+  const [customVatNote, setCustomVatNote] = useState(
+    printSettings?.quoteVatNote || 'Lưu ý : Bảng giá trên chưa bao gồm phí VAT'
+  );
+  const [customValidityNote, setCustomValidityNote] = useState(
+    printSettings?.quoteValidityNote || 'Bảng báo giá có hiệu lực 3 ngày kể từ ngày báo'
+  );
+  const [customWarrantyTerms, setCustomWarrantyTerms] = useState<string[]>(
+    printSettings?.quoteWarrantyTerms || [
+      "Sản phẩm phân phối chính hãng phải còn nguyên tem bảo hành, không bị rách, chắp vá hay cạo sửa.",
+      "Sản phẩm không có dấu hiệu bị rách tem hoặc tác động cơ học hỏng hóc vật lý.",
+      "Không bảo hành trong các trường hợp cháy nổ, rơi vỡ, vô nước, côn trùng, hoặc thiên tai.",
+      "Hỗ trợ xử lý phần mềm, cài Win miễn phí trong vòng 1 năm đầu mua máy.",
+      "Hàng bán ra được đổi mới trong 7 ngày đầu nếu có lỗi phần cứng từ nhà sản xuất."
+    ]
+  );
+  const [showWarrantyTerms, setShowWarrantyTerms] = useState(
+    printSettings?.showQuoteWarrantyTerms !== undefined ? printSettings.showQuoteWarrantyTerms : true
+  );
+  const [showBankInfo, setShowBankInfo] = useState(
+    printSettings?.showQuoteBankInfo !== undefined ? printSettings.showQuoteBankInfo : true
+  );
+  const [showQrCode, setShowQrCode] = useState(
+    printSettings?.showQuoteQrCode !== undefined ? printSettings.showQuoteQrCode : false
+  );
+  const [showSignatures, setShowSignatures] = useState(
+    printSettings?.showQuoteSignatures !== undefined ? printSettings.showQuoteSignatures : true
+  );
+  const [showStockColumn, setShowStockColumn] = useState(
+    printSettings?.showQuoteStockColumn !== undefined ? printSettings.showQuoteStockColumn : true
+  );
+  const [showWarrantyColumn, setShowWarrantyColumn] = useState(
+    printSettings?.showQuoteWarrantyColumn !== undefined ? printSettings.showQuoteWarrantyColumn : true
+  );
+
+  // Column labels & section titles
+  const [customColSttLabel, setCustomColSttLabel] = useState(printSettings?.quoteColSttLabel || 'STT');
+  const [customColProductLabel, setCustomColProductLabel] = useState(printSettings?.quoteColProductLabel || 'TÊN SẢN PHẨM');
+  const [customColQtyLabel, setCustomColQtyLabel] = useState(printSettings?.quoteColQtyLabel || 'SL');
+  const [customColUnitPriceLabel, setCustomColUnitPriceLabel] = useState(printSettings?.quoteColUnitPriceLabel || 'ĐƠN GIÁ');
+  const [customColAmountLabel, setCustomColAmountLabel] = useState(printSettings?.quoteColAmountLabel || 'THÀNH TIỀN');
+  const [customColWarrantyLabel, setCustomColWarrantyLabel] = useState(printSettings?.quoteColWarrantyLabel || 'BẢO HÀNH');
+  const [customColStockLabel, setCustomColStockLabel] = useState(printSettings?.quoteColStockLabel || 'TÌNH TRẠNG HÀNG');
+  const [customTotalLabel, setCustomTotalLabel] = useState(printSettings?.quoteTotalLabel || 'TỔNG CỘNG CẤU HÌNH BAO GỒM VAT:');
+  const [customWarrantyTermsHeader, setCustomWarrantyTermsHeader] = useState(printSettings?.quoteWarrantyTermsHeader || 'MỘT SỐ QUY ĐỊNH BẢO HÀNH:');
+  const [customBankHeader, setCustomBankHeader] = useState(printSettings?.quoteBankHeader || 'Thông tin chuyển khoản:');
+  const [customSignatureCustomerLabel, setCustomSignatureCustomerLabel] = useState(printSettings?.quoteSignatureCustomerLabel || 'Khách hàng');
+  const [customSignatureStoreLabel, setCustomSignatureStoreLabel] = useState(printSettings?.quoteSignatureStoreLabel || 'CỬA HÀNG');
+
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Sync with printSettings when changed externally
+  useEffect(() => {
+    if (printSettings) {
+      if (printSettings.quoteTitle) setCustomQuoteTitle(printSettings.quoteTitle);
+      if (printSettings.quoteStockStatusText) setCustomStockStatusText(printSettings.quoteStockStatusText);
+      if (printSettings.quoteVatNote) setCustomVatNote(printSettings.quoteVatNote);
+      if (printSettings.quoteValidityNote) setCustomValidityNote(printSettings.quoteValidityNote);
+      if (printSettings.quoteWarrantyTerms) setCustomWarrantyTerms(printSettings.quoteWarrantyTerms);
+      if (printSettings.showQuoteWarrantyTerms !== undefined) setShowWarrantyTerms(printSettings.showQuoteWarrantyTerms);
+      if (printSettings.showQuoteBankInfo !== undefined) setShowBankInfo(printSettings.showQuoteBankInfo);
+      if (printSettings.showQuoteQrCode !== undefined) setShowQrCode(printSettings.showQuoteQrCode);
+      if (printSettings.showQuoteSignatures !== undefined) setShowSignatures(printSettings.showQuoteSignatures);
+      if (printSettings.showQuoteStockColumn !== undefined) setShowStockColumn(printSettings.showQuoteStockColumn);
+      if (printSettings.showQuoteWarrantyColumn !== undefined) setShowWarrantyColumn(printSettings.showQuoteWarrantyColumn);
+      if (printSettings.quoteColSttLabel) setCustomColSttLabel(printSettings.quoteColSttLabel);
+      if (printSettings.quoteColProductLabel) setCustomColProductLabel(printSettings.quoteColProductLabel);
+      if (printSettings.quoteColQtyLabel) setCustomColQtyLabel(printSettings.quoteColQtyLabel);
+      if (printSettings.quoteColUnitPriceLabel) setCustomColUnitPriceLabel(printSettings.quoteColUnitPriceLabel);
+      if (printSettings.quoteColAmountLabel) setCustomColAmountLabel(printSettings.quoteColAmountLabel);
+      if (printSettings.quoteColWarrantyLabel) setCustomColWarrantyLabel(printSettings.quoteColWarrantyLabel);
+      if (printSettings.quoteColStockLabel) setCustomColStockLabel(printSettings.quoteColStockLabel);
+      if (printSettings.quoteTotalLabel) setCustomTotalLabel(printSettings.quoteTotalLabel);
+      if (printSettings.quoteWarrantyTermsHeader) setCustomWarrantyTermsHeader(printSettings.quoteWarrantyTermsHeader);
+      if (printSettings.quoteBankHeader) setCustomBankHeader(printSettings.quoteBankHeader);
+      if (printSettings.quoteSignatureCustomerLabel) setCustomSignatureCustomerLabel(printSettings.quoteSignatureCustomerLabel);
+      if (printSettings.quoteSignatureStoreLabel) setCustomSignatureStoreLabel(printSettings.quoteSignatureStoreLabel);
+    }
+  }, [printSettings]);
+
+  const handleSavePrintTemplate = () => {
+    if (onUpdatePrintSettings && printSettings) {
+      onUpdatePrintSettings({
+        ...printSettings,
+        quoteTitle: customQuoteTitle,
+        quoteStockStatusText: customStockStatusText,
+        quoteVatNote: customVatNote,
+        quoteValidityNote: customValidityNote,
+        quoteWarrantyTerms: customWarrantyTerms,
+        showQuoteWarrantyTerms: showWarrantyTerms,
+        showQuoteBankInfo: showBankInfo,
+        showQuoteQrCode: showQrCode,
+        showQuoteSignatures: showSignatures,
+        showQuoteStockColumn: showStockColumn,
+        showQuoteWarrantyColumn: showWarrantyColumn,
+        quoteColSttLabel: customColSttLabel,
+        quoteColProductLabel: customColProductLabel,
+        quoteColQtyLabel: customColQtyLabel,
+        quoteColUnitPriceLabel: customColUnitPriceLabel,
+        quoteColAmountLabel: customColAmountLabel,
+        quoteColWarrantyLabel: customColWarrantyLabel,
+        quoteColStockLabel: customColStockLabel,
+        quoteTotalLabel: customTotalLabel,
+        quoteWarrantyTermsHeader: customWarrantyTermsHeader,
+        quoteBankHeader: customBankHeader,
+        quoteSignatureCustomerLabel: customSignatureCustomerLabel,
+        quoteSignatureStoreLabel: customSignatureStoreLabel
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    }
+  };
 
   // Filter products by active slot matching rules and search text
   const [showAllProducts, setShowAllProducts] = useState(false);
@@ -1220,10 +1346,22 @@ export default function PCBuilder({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2.5rem] border-2 border-slate-300 shadow-2xl p-8 w-full max-w-2xl z-20 relative max-h-[90vh] overflow-y-auto"
+              className="bg-white rounded-[2.5rem] border-2 border-slate-300 shadow-2xl p-8 w-full max-w-3xl z-20 relative max-h-[92vh] overflow-y-auto"
             >
-              <div className="flex justify-between items-center mb-6 pb-2 border-b border-slate-200 shrink-0">
-                <span className="text-xs font-black text-slate-800 tracking-wider uppercase">VĂN BẢN TRÌNH IN THỊNH PHÁT</span>
+              <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-200 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black text-slate-800 tracking-wider uppercase">VĂN BẢN TRÌNH IN THỊNH PHÁT</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPrintCustomizer(!showPrintCustomizer)}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      showPrintCustomizer ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    {showPrintCustomizer ? 'Ẩn bộ chỉnh sửa' : 'Chỉnh sửa mẫu in'}
+                  </button>
+                </div>
                 <button 
                   onClick={() => setPrintedQuoteInvoice(false)}
                   className="p-1 rounded-full hover:bg-slate-100 text-slate-400 cursor-pointer"
@@ -1231,6 +1369,187 @@ export default function PCBuilder({
                   <X className="w-5 h-5" />
                 </button>
               </div>
+
+              {/* EXPANDABLE PRINT CUSTOMIZER EDITOR */}
+              {showPrintCustomizer && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 text-xs space-y-4 shadow-inner"
+                >
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                    <h4 className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                      <Settings className="w-4 h-4 text-indigo-600" />
+                      Chỉnh sửa thông tin & Bố cục mẫu in Phiếu báo giá
+                    </h4>
+                    {onUpdatePrintSettings && (
+                      <button
+                        type="button"
+                        onClick={handleSavePrintTemplate}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold flex items-center gap-1 transition cursor-pointer"
+                      >
+                        {saveSuccess ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Save className="w-3.5 h-3.5" />}
+                        {saveSuccess ? 'Đã lưu mẫu!' : 'Lưu mẫu in mặc định'}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Tiêu đề phiếu in</label>
+                      <input 
+                        type="text" 
+                        value={customQuoteTitle} 
+                        onChange={e => setCustomQuoteTitle(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Nội dung cột Tình trạng hàng</label>
+                      <input 
+                        type="text" 
+                        value={customStockStatusText} 
+                        onChange={e => setCustomStockStatusText(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs"
+                        placeholder="VD: SẴN HÀNG"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Ghi chú VAT</label>
+                      <input 
+                        type="text" 
+                        value={customVatNote} 
+                        onChange={e => setCustomVatNote(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-600 mb-1">Thời hạn báo giá</label>
+                      <input 
+                        type="text" 
+                        value={customValidityNote} 
+                        onChange={e => setCustomValidityNote(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-semibold text-slate-800 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* CUSTOM COLUMN HEADERS & TITLES */}
+                  <div className="pt-2 border-t border-slate-200">
+                    <label className="block text-[10px] font-bold uppercase text-slate-600 mb-2">Tên các tiêu đề cột trong bảng</label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Cột STT</span>
+                        <input type="text" value={customColSttLabel} onChange={e => setCustomColSttLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Cột Sản phẩm</span>
+                        <input type="text" value={customColProductLabel} onChange={e => setCustomColProductLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Cột SL</span>
+                        <input type="text" value={customColQtyLabel} onChange={e => setCustomColQtyLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Cột Đơn giá</span>
+                        <input type="text" value={customColUnitPriceLabel} onChange={e => setCustomColUnitPriceLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Cột Thành tiền</span>
+                        <input type="text" value={customColAmountLabel} onChange={e => setCustomColAmountLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Cột Bảo hành</span>
+                        <input type="text" value={customColWarrantyLabel} onChange={e => setCustomColWarrantyLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Cột Tình trạng</span>
+                        <input type="text" value={customColStockLabel} onChange={e => setCustomColStockLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-semibold">Dòng Tổng tiền</span>
+                        <input type="text" value={customTotalLabel} onChange={e => setCustomTotalLabel(e.target.value)} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-md text-xs font-semibold" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Toggle column & block switches */}
+                  <div className="pt-2 border-t border-slate-200">
+                    <label className="block text-[10px] font-bold uppercase text-slate-600 mb-2">Ẩn / Hiện các cột & phần thông tin</label>
+                    <div className="flex flex-wrap gap-4 text-slate-700 font-semibold">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={showWarrantyColumn} onChange={e => setShowWarrantyColumn(e.target.checked)} className="rounded text-indigo-600" />
+                        <span>Cột Bảo hành</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={showStockColumn} onChange={e => setShowStockColumn(e.target.checked)} className="rounded text-indigo-600" />
+                        <span>Cột Tình trạng hàng</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={showWarrantyTerms} onChange={e => setShowWarrantyTerms(e.target.checked)} className="rounded text-indigo-600" />
+                        <span>Quy định bảo hành</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={showBankInfo} onChange={e => setShowBankInfo(e.target.checked)} className="rounded text-indigo-600" />
+                        <span>Thông tin ngân hàng</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={showQrCode} onChange={e => setShowQrCode(e.target.checked)} className="rounded text-indigo-600" />
+                        <span>Mã QR VietQR</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={showSignatures} onChange={e => setShowSignatures(e.target.checked)} className="rounded text-indigo-600" />
+                        <span>Khối Chữ ký</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Warranty rules list editor */}
+                  {showWarrantyTerms && (
+                    <div className="pt-2 border-t border-slate-200">
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-[10px] font-bold uppercase text-slate-600">Nội dung quy định bảo hành</label>
+                        <button
+                          type="button"
+                          onClick={() => setCustomWarrantyTerms([...customWarrantyTerms, ""])}
+                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" /> Thêm điều khoản
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {customWarrantyTerms.map((term, index) => (
+                          <div key={index} className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-400 w-4 text-center shrink-0">{index + 1}.</span>
+                            <input
+                              type="text"
+                              value={term}
+                              onChange={e => {
+                                const updated = [...customWarrantyTerms];
+                                updated[index] = e.target.value;
+                                setCustomWarrantyTerms(updated);
+                              }}
+                              className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded-md font-medium text-slate-800 text-[11px]"
+                              placeholder="Nhập điều khoản bảo hành..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setCustomWarrantyTerms(customWarrantyTerms.filter((_, i) => i !== index))}
+                              className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )}
 
               {/* Printable Invoice Container */}
               <div 
@@ -1282,7 +1601,7 @@ export default function PCBuilder({
                 {/* Main Document Title */}
                 <div className="text-center mb-4">
                   <h3 className="text-[1.25em] font-black uppercase" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>
-                    {savedBuildInvoice.invoiceNumber.startsWith('BG-') ? 'BẢNG BÁO GIÁ CẤU HÌNH PC' : 'BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH'}
+                    {customQuoteTitle || (savedBuildInvoice.invoiceNumber.startsWith('BG-') ? 'BẢNG BÁO GIÁ CẤU HÌNH PC' : 'BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH')}
                   </h3>
                   <p className="text-[0.75em] font-bold text-slate-400 mt-1">Ngày lập: {new Date(savedBuildInvoice.createdAt).toLocaleDateString('vi-VN')} - Tên NV: {savedBuildInvoice.processedBy || currentUser.fullName}</p>
                 </div>
@@ -1300,13 +1619,17 @@ export default function PCBuilder({
                   <table className="w-full border-collapse border border-slate-300 text-[0.85em]">
                     <thead>
                       <tr className="bg-slate-100 text-slate-700">
-                        <th className="border border-slate-300 py-2 w-8 text-center uppercase tracking-tighter">STT</th>
-                        <th className="border border-slate-300 py-2 px-2 text-left uppercase">TÊN SẢN PHẨM</th>
-                        <th className="border border-slate-300 py-2 w-10 text-center uppercase">SL</th>
-                        <th className="border border-slate-300 py-2 w-20 text-center uppercase">ĐƠN GIÁ</th>
-                        <th className="border border-slate-300 py-2 w-20 text-center uppercase">THÀNH TIỀN</th>
-                        <th className="border border-slate-300 py-2 w-12 text-center uppercase tracking-tighter">BẢO<br/>HÀNH</th>
-                        <th className="border border-slate-300 py-2 w-16 text-center uppercase tracking-tighter text-blue-800">TÌNH<br/>TRẠNG<br/>HÀNG</th>
+                        <th className="border border-slate-300 py-2 w-8 text-center uppercase tracking-tighter">{customColSttLabel}</th>
+                        <th className="border border-slate-300 py-2 px-2 text-left uppercase">{customColProductLabel}</th>
+                        <th className="border border-slate-300 py-2 w-10 text-center uppercase">{customColQtyLabel}</th>
+                        <th className="border border-slate-300 py-2 w-20 text-center uppercase">{customColUnitPriceLabel}</th>
+                        <th className="border border-slate-300 py-2 w-20 text-center uppercase">{customColAmountLabel}</th>
+                        {showWarrantyColumn && (
+                          <th className="border border-slate-300 py-2 w-12 text-center uppercase tracking-tighter">{customColWarrantyLabel}</th>
+                        )}
+                        {showStockColumn && (
+                          <th className="border border-slate-300 py-2 w-16 text-center uppercase tracking-tighter text-blue-800">{customColStockLabel}</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="text-slate-900 font-medium pb-2">
@@ -1327,8 +1650,12 @@ export default function PCBuilder({
                                      <td className="border border-slate-300 py-1.5 text-center font-bold">{item.quantity}</td>
                                      <td className="border border-slate-300 py-1.5 text-right px-2 font-semibold text-slate-700">{formatVND(item.price)}</td>
                                      <td className="border border-slate-300 py-1.5 text-right px-2 font-bold">{formatVND(item.price * item.quantity)}</td>
-                                     <td className="border border-slate-300 py-1.5 text-center text-slate-800">{item.warrantyMonths > 0 ? formatWarrantyText(item.warrantyMonths) : '03TH'}</td>
-                                     <td className="border border-slate-300 py-1.5 text-center font-extrabold text-blue-700">SẴN HÀNG</td>
+                                     {showWarrantyColumn && (
+                                       <td className="border border-slate-300 py-1.5 text-center text-slate-800">{item.warrantyMonths > 0 ? formatWarrantyText(item.warrantyMonths) : '03TH'}</td>
+                                     )}
+                                     {showStockColumn && (
+                                       <td className="border border-slate-300 py-1.5 text-center font-extrabold text-blue-700 uppercase">{customStockStatusText || 'SẴN HÀNG'}</td>
+                                     )}
                                    </tr>
                                  );
                               } else {
@@ -1339,8 +1666,8 @@ export default function PCBuilder({
                                      <td className="border border-slate-300 py-1.5 text-center"></td>
                                      <td className="border border-slate-300 py-1.5 text-right px-2"></td>
                                      <td className="border border-slate-300 py-1.5 text-right px-2"></td>
-                                     <td className="border border-slate-300 py-1.5 text-center"></td>
-                                     <td className="border border-slate-300 py-1.5 text-center"></td>
+                                     {showWarrantyColumn && <td className="border border-slate-300 py-1.5 text-center"></td>}
+                                     {showStockColumn && <td className="border border-slate-300 py-1.5 text-center"></td>}
                                    </tr>
                                  );
                               }
@@ -1353,7 +1680,7 @@ export default function PCBuilder({
                   
                   {/* Total Value */}
                   <div className="flex justify-between items-center text-[1em] font-black border-b border-t border-dashed border-slate-300 py-3 mt-4">
-                    <span className="uppercase" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>TỔNG CỘNG CẤU HÌNH BAO GỒM VAT:</span>
+                    <span className="uppercase" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>{customTotalLabel || 'TỔNG CỘNG CẤU HÌNH BAO GỒM VAT:'}</span>
                     <span className="text-slate-900 font-black text-[1.1em]">{formatVND(totalBuildValue)}</span>
                   </div>
                 </div>
@@ -1362,65 +1689,71 @@ export default function PCBuilder({
                 <div className="pt-2 text-[0.8em] text-slate-800 space-y-4 font-medium">
                   
                   {/* Warranty Terms and Policies */}
-                  <div className="space-y-1">
-                    <p className="font-bold uppercase text-[1.1em]" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>MỘT SỐ QUY ĐỊNH BẢO HÀNH:</p>
-                    <ul className="list-decimal pl-4 space-y-0.5">
-                      <li>Sản phẩm phân phối chính hãng phải còn nguyên tem bảo hành, không bị rách, chắp vá hay cạo sửa.</li>
-                      <li>Sản phẩm không có dấu hiệu bị rách tem hoặc tác động cơ học hỏng hóc vật lý.</li>
-                      <li>Không bảo hành trong các trường hợp cháy nổ, rơi vỡ, vô nước, côn trùng, hoặc thiên tai.</li>
-                      <li>Hỗ trợ xử lý phần mềm, cài Win miễn phí trong vòng 1 năm đầu mua máy.</li>
-                      <li>Hàng bán ra được đổi mới trong 7 ngày đầu nếu có lỗi phần cứng từ nhà sản xuất.</li>
-                    </ul>
-                  </div>
+                  {showWarrantyTerms && customWarrantyTerms.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="font-bold uppercase text-[1.1em]" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>{customWarrantyTermsHeader || 'MỘT SỐ QUY ĐỊNH BẢO HÀNH:'}</p>
+                      <ul className="list-decimal pl-4 space-y-0.5">
+                        {customWarrantyTerms.filter(t => t.trim()).map((term, i) => (
+                          <li key={i}>{term}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-6 my-6 border-t border-slate-200 mt-4 pt-4">
                     {/* Left Column: Rules & Bank Info */}
                     <div className="space-y-3">
-                      <div className="space-y-0.5 font-bold text-[0.9em] text-slate-600">
-                        <p>Lưu ý : Bảng giá trên chưa bao gồm phí VAT</p>
-                        <p>Bảng báo giá có hiệu lực 3 ngày kể từ ngày báo</p>
-                      </div>
+                      {(customVatNote || customValidityNote) && (
+                        <div className="space-y-0.5 font-bold text-[0.9em] text-slate-600">
+                          {customVatNote && <p>{customVatNote}</p>}
+                          {customValidityNote && <p>{customValidityNote}</p>}
+                        </div>
+                      )}
 
-                      <div className="space-y-1 pt-2">
-                        <p className="font-extrabold uppercase text-[0.9em]" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>Thông tin chuyển khoản:</p>
-                        <p>Tên tài khoản: <span className="font-bold text-slate-900">{printSettings?.bankAccountName || "Hà Thanh Thịnh"}</span></p>
-                        <p>Số tài khoản: <span className="font-bold text-slate-900">{printSettings?.bankAccountNo || "0041000220324"}</span></p>
-                        <p>Ngân hàng: <span className="font-bold text-slate-900">{printSettings?.bankId === 'VCB' ? 'Vietcombank' : (printSettings?.bankId || 'Ngân Hàng')}</span></p>
-                        
-                        {/* Visual QR quick pay */}
-                        {printSettings?.bankAccountNo && (
-                          <div className="mt-2 w-fit select-none">
-                            <img 
-                              src={`https://img.vietqr.io/image/${printSettings.bankId || 'VCB'}-${printSettings.bankAccountNo}-${printSettings?.qrCompact ? 'compact2' : 'qr_only'}.png?amount=${totalBuildValue}&addInfo=${encodeURIComponent(`Thanh toan don PC ${savedBuildInvoice.invoiceNumber}`)}&accountName=${encodeURIComponent(printSettings.bankAccountName || '')}`} 
-                              alt="VietQR Quickpay"
-                              referrerPolicy="no-referrer"
-                              className="w-[85px] h-[85px] object-contain border-2 border-slate-200 p-0.5 rounded-sm"
-                            />
-                          </div>
-                        )}
-                      </div>
+                      {showBankInfo && (
+                        <div className="space-y-1 pt-2">
+                          <p className="font-extrabold uppercase text-[0.9em]" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>{customBankHeader || 'Thông tin chuyển khoản:'}</p>
+                          <p>Tên tài khoản: <span className="font-bold text-slate-900">{printSettings?.bankAccountName || "Hà Thanh Thịnh"}</span></p>
+                          <p>Số tài khoản: <span className="font-bold text-slate-900">{printSettings?.bankAccountNo || "0041000220324"}</span></p>
+                          <p>Ngân hàng: <span className="font-bold text-slate-900">{printSettings?.bankId === 'VCB' ? 'Vietcombank' : (printSettings?.bankId || 'Ngân Hàng')}</span></p>
+                          
+                          {/* Visual QR quick pay - Only render if showQrCode is true */}
+                          {showQrCode && printSettings?.bankAccountNo && (
+                            <div className="mt-2 w-fit select-none">
+                              <img 
+                                src={`https://img.vietqr.io/image/${printSettings.bankId || 'VCB'}-${printSettings.bankAccountNo}-${printSettings?.qrCompact ? 'compact2' : 'qr_only'}.png?amount=${totalBuildValue}&addInfo=${encodeURIComponent(`Thanh toan don PC ${savedBuildInvoice.invoiceNumber}`)}&accountName=${encodeURIComponent(printSettings.bankAccountName || '')}`} 
+                                alt="VietQR Quickpay"
+                                referrerPolicy="no-referrer"
+                                className="w-[85px] h-[85px] object-contain border-2 border-slate-200 p-0.5 rounded-sm"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Right Column: Date & Signatures */}
-                    <div className="flex flex-col items-center justify-start text-center">
-                      <p className="italic text-[0.9em]">
-                        Ngày {String(new Date(savedBuildInvoice.createdAt).getDate()).padStart(2, '0')} tháng {String(new Date(savedBuildInvoice.createdAt).getMonth() + 1).padStart(2, '0')} năm {new Date(savedBuildInvoice.createdAt).getFullYear()}
-                      </p>
-                      
-                      <div className="grid grid-cols-2 w-full pt-4 gap-2">
-                        <div>
-                          <p className="font-bold text-[1em]">Khách hàng</p>
-                          <p className="text-[0.8em] italic text-slate-500">(Ký, ghi rõ họ tên)</p>
-                          <div className="h-16"></div>
-                          <p className="font-bold text-[0.9em]">{savedBuildInvoice.customerName}</p>
-                        </div>
-                        <div>
-                          <p className="font-bold flex items-center justify-center uppercase text-[0.9em]">{printSettings?.storeName || "CƯẢ HÀNG"}</p>
-                          <p className="text-[0.8em] italic text-slate-500">(Ký, đóng dấu)</p>
-                          <div className="h-16"></div>
+                    {showSignatures && (
+                      <div className="flex flex-col items-center justify-start text-center">
+                        <p className="italic text-[0.9em]">
+                          Ngày {String(new Date(savedBuildInvoice.createdAt).getDate()).padStart(2, '0')} tháng {String(new Date(savedBuildInvoice.createdAt).getMonth() + 1).padStart(2, '0')} năm {new Date(savedBuildInvoice.createdAt).getFullYear()}
+                        </p>
+                        
+                        <div className="grid grid-cols-2 w-full pt-4 gap-2">
+                          <div>
+                            <p className="font-bold text-[1em]">Khách hàng</p>
+                            <p className="text-[0.8em] italic text-slate-500">(Ký, ghi rõ họ tên)</p>
+                            <div className="h-16"></div>
+                            <p className="font-bold text-[0.9em]">{savedBuildInvoice.customerName}</p>
+                          </div>
+                          <div>
+                            <p className="font-bold flex items-center justify-center uppercase text-[0.9em]">{printSettings?.storeName || "CƯẢ HÀNG"}</p>
+                            <p className="text-[0.8em] italic text-slate-500">(Ký, đóng dấu)</p>
+                            <div className="h-16"></div>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                   
                   {printSettings?.storeNote && (

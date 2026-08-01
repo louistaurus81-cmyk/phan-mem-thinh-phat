@@ -72,7 +72,36 @@ const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   bankId: "VCB",
   bankAccountNo: "0041000220324",
   bankAccountName: "HA THANH THINH",
-  qrCompact: true
+  qrCompact: true,
+  quoteTitle: "BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH",
+  quoteStockStatusText: "SẴN HÀNG",
+  quoteVatNote: "Lưu ý : Bảng giá trên chưa bao gồm phí VAT",
+  quoteValidityNote: "Bảng báo giá có hiệu lực 3 ngày kể từ ngày báo",
+  quoteWarrantyTerms: [
+    "Sản phẩm phân phối chính hãng phải còn nguyên tem bảo hành, không bị rách, chắp vá hay cạo sửa.",
+    "Sản phẩm không có dấu hiệu bị rách tem hoặc tác động cơ học hỏng hóc vật lý.",
+    "Không bảo hành trong các trường hợp cháy nổ, rơi vỡ, vô nước, côn trùng, hoặc thiên tai.",
+    "Hỗ trợ xử lý phần mềm, cài Win miễn phí trong vòng 1 năm đầu mua máy.",
+    "Hàng bán ra được đổi mới trong 7 ngày đầu nếu có lỗi phần cứng từ nhà sản xuất."
+  ],
+  showQuoteWarrantyTerms: true,
+  showQuoteBankInfo: true,
+  showQuoteQrCode: false,
+  showQuoteSignatures: true,
+  showQuoteStockColumn: true,
+  showQuoteWarrantyColumn: true,
+  quoteColSttLabel: "STT",
+  quoteColProductLabel: "TÊN LINH KIỆN - SẢN PHẨM",
+  quoteColQtyLabel: "SL",
+  quoteColUnitPriceLabel: "ĐƠN GIÁ",
+  quoteColAmountLabel: "THÀNH TIỀN",
+  quoteColWarrantyLabel: "BẢO HÀNH",
+  quoteColStockLabel: "TÌNH TRẠNG HÀNG",
+  quoteTotalLabel: "TỔNG CỘNG CẤU HÌNH BAO GỒM VAT:",
+  quoteWarrantyTermsHeader: "MỘT SỐ QUY ĐỊNH BẢO HÀNH:",
+  quoteBankHeader: "Thông tin chuyển khoản:",
+  quoteSignatureCustomerLabel: "Khách hàng",
+  quoteSignatureStoreLabel: "CỬA HÀNG"
 };
 
 export default function App() {
@@ -1359,6 +1388,7 @@ export default function App() {
                 onAddCustomer={handleAddCustomer}
                 onUpdateProductStock={handleUpdateProductStock}
                 onUpdateImeis={saveImeis}
+                onUpdatePrintSettings={setPrintSettings}
               />
             )}
 

@@ -256,6 +256,31 @@ export interface PrintSettings {
   bankAccountNo: string;
   bankAccountName: string;
   qrCompact: boolean;
+  // Quote & Warranty Print Customization
+  quoteTitle?: string;
+  quoteStockStatusText?: string;
+  quoteVatNote?: string;
+  quoteValidityNote?: string;
+  quoteWarrantyTerms?: string[];
+  showQuoteWarrantyTerms?: boolean;
+  showQuoteBankInfo?: boolean;
+  showQuoteQrCode?: boolean;
+  showQuoteSignatures?: boolean;
+  showQuoteStockColumn?: boolean;
+  showQuoteWarrantyColumn?: boolean;
+  // Custom Labels & Headings for layout customization
+  quoteColSttLabel?: string;
+  quoteColProductLabel?: string;
+  quoteColQtyLabel?: string;
+  quoteColUnitPriceLabel?: string;
+  quoteColAmountLabel?: string;
+  quoteColWarrantyLabel?: string;
+  quoteColStockLabel?: string;
+  quoteTotalLabel?: string;
+  quoteWarrantyTermsHeader?: string;
+  quoteBankHeader?: string;
+  quoteSignatureCustomerLabel?: string;
+  quoteSignatureStoreLabel?: string;
 }
 
 export function formatWarrantyText(months: number): string {

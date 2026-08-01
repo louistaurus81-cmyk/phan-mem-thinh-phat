@@ -45,7 +45,7 @@ export default function PrintSettingsManager({
   currentUser 
 }: PrintSettingsManagerProps) {
   const [formState, setFormState] = useState<PrintSettings>({ ...printSettings });
-  const [activeSubTab, setActiveSubTab] = useState<'info' | 'layout' | 'payment'>('info');
+  const [activeSubTab, setActiveSubTab] = useState<'info' | 'layout' | 'payment' | 'quote'>('info');
   const [previewDocTab, setPreviewDocTab] = useState<'invoice' | 'quotation'>('invoice');
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -149,8 +149,9 @@ export default function PrintSettingsManager({
           </div>
 
           {/* Sub-tabs layout config */}
-          <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl mb-4 text-xs font-semibold">
+          <div className="grid grid-cols-4 gap-1 bg-slate-100 p-1 rounded-xl mb-4 text-xs font-semibold">
             <button
+              type="button"
               onClick={() => setActiveSubTab('info')}
               className={`py-2 text-center rounded-lg transition cursor-pointer select-none ${
                 activeSubTab === 'info' 
@@ -164,6 +165,7 @@ export default function PrintSettingsManager({
               </span>
             </button>
             <button
+              type="button"
               onClick={() => setActiveSubTab('layout')}
               className={`py-2 text-center rounded-lg transition cursor-pointer select-none ${
                 activeSubTab === 'layout' 
@@ -177,6 +179,7 @@ export default function PrintSettingsManager({
               </span>
             </button>
             <button
+              type="button"
               onClick={() => setActiveSubTab('payment')}
               className={`py-2 text-center rounded-lg transition cursor-pointer select-none ${
                 activeSubTab === 'payment' 
@@ -187,6 +190,20 @@ export default function PrintSettingsManager({
               <span className="flex items-center justify-center gap-1">
                 <QrCode className="w-3.5 h-3.5" />
                 VietQR
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('quote')}
+              className={`py-2 text-center rounded-lg transition cursor-pointer select-none ${
+                activeSubTab === 'quote' 
+                  ? 'bg-white text-indigo-600 shadow-xs' 
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <span className="flex items-center justify-center gap-1">
+                <FileText className="w-3.5 h-3.5" />
+                Mẫu Báo Giá
               </span>
             </button>
           </div>
@@ -491,6 +508,208 @@ export default function PrintSettingsManager({
               </div>
             )}
 
+            {/* SUB-TAB 4: QUOTATION & WARRANTY PRINT TEMPLATE SETTINGS */}
+            {activeSubTab === 'quote' && (
+              <div className="space-y-3.5 transition-all text-xs">
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Tiêu đề phiếu báo giá kiêm bảo hành</label>
+                  <input
+                    type="text"
+                    name="quoteTitle"
+                    value={formState.quoteTitle || 'BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH'}
+                    onChange={handleInputChange}
+                    className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Cột Tình Trạng Hàng</label>
+                    <input
+                      type="text"
+                      name="quoteStockStatusText"
+                      value={formState.quoteStockStatusText || 'SẴN HÀNG'}
+                      onChange={handleInputChange}
+                      className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                      placeholder="VD: SẴN HÀNG"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Thời hạn báo giá</label>
+                    <input
+                      type="text"
+                      name="quoteValidityNote"
+                      value={formState.quoteValidityNote || 'Bảng báo giá có hiệu lực 3 ngày kể từ ngày báo'}
+                      onChange={handleInputChange}
+                      className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Ghi chú phí VAT</label>
+                  <input
+                    type="text"
+                    name="quoteVatNote"
+                    value={formState.quoteVatNote || 'Lưu ý : Bảng giá trên chưa bao gồm phí VAT'}
+                    onChange={handleInputChange}
+                    className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-slate-200">
+                  <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-2">Tùy chỉnh tiêu đề cột & các nhãn</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Cột STT</span>
+                      <input type="text" name="quoteColSttLabel" value={formState.quoteColSttLabel || 'STT'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Cột Sản Phẩm</span>
+                      <input type="text" name="quoteColProductLabel" value={formState.quoteColProductLabel || 'TÊN SẢN PHẨM'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Cột Số Lượng</span>
+                      <input type="text" name="quoteColQtyLabel" value={formState.quoteColQtyLabel || 'SL'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Cột Đơn Giá</span>
+                      <input type="text" name="quoteColUnitPriceLabel" value={formState.quoteColUnitPriceLabel || 'ĐƠN GIÁ'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Cột Thành Tiền</span>
+                      <input type="text" name="quoteColAmountLabel" value={formState.quoteColAmountLabel || 'THÀNH TIỀN'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Cột Bảo Hành</span>
+                      <input type="text" name="quoteColWarrantyLabel" value={formState.quoteColWarrantyLabel || 'BẢO HÀNH'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Cột Tình Trạng</span>
+                      <input type="text" name="quoteColStockLabel" value={formState.quoteColStockLabel || 'TÌNH TRẠNG HÀNG'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold">Tên Dòng Tổng Tiền</span>
+                      <input type="text" name="quoteTotalLabel" value={formState.quoteTotalLabel || 'TỔNG CỘNG CẤU HÌNH BAO GỒM VAT:'} onChange={handleInputChange} className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200">
+                  <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-2">Bật / Tắt thành phần báo giá</label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="showQuoteWarrantyColumn"
+                        checked={formState.showQuoteWarrantyColumn !== false}
+                        onChange={handleInputChange}
+                        className="rounded text-indigo-600"
+                      />
+                      <span className="font-semibold text-slate-700 text-xs">Hiển thị cột Cấp bảo hành</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="showQuoteStockColumn"
+                        checked={formState.showQuoteStockColumn !== false}
+                        onChange={handleInputChange}
+                        className="rounded text-indigo-600"
+                      />
+                      <span className="font-semibold text-slate-700 text-xs">Hiển thị cột Tình trạng hàng</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="showQuoteWarrantyTerms"
+                        checked={formState.showQuoteWarrantyTerms !== false}
+                        onChange={handleInputChange}
+                        className="rounded text-indigo-600"
+                      />
+                      <span className="font-semibold text-slate-700 text-xs">Hiển thị khối Quy định bảo hành</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="showQuoteBankInfo"
+                        checked={formState.showQuoteBankInfo !== false}
+                        onChange={handleInputChange}
+                        className="rounded text-indigo-600"
+                      />
+                      <span className="font-semibold text-slate-700 text-xs">Hiển thị Thông tin tài khoản ngân hàng</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="showQuoteQrCode"
+                        checked={!!formState.showQuoteQrCode}
+                        onChange={handleInputChange}
+                        className="rounded text-indigo-600"
+                      />
+                      <span className="font-semibold text-slate-700 text-xs">Hiển thị Mã QR VietQR (Mặc định Tắt)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="showQuoteSignatures"
+                        checked={formState.showQuoteSignatures !== false}
+                        onChange={handleInputChange}
+                        className="rounded text-indigo-600"
+                      />
+                      <span className="font-semibold text-slate-700 text-xs">Hiển thị khối Chữ ký xác nhận</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Quy định bảo hành array editor */}
+                {(formState.showQuoteWarrantyTerms !== false) && (
+                  <div className="pt-2 border-t border-slate-200 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider">Danh sách quy định bảo hành</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentTerms = formState.quoteWarrantyTerms || [];
+                          setFormState(prev => ({ ...prev, quoteWarrantyTerms: [...currentTerms, ""] }));
+                        }}
+                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        + Thêm dòng
+                      </button>
+                    </div>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {(formState.quoteWarrantyTerms || []).map((term, idx) => (
+                        <div key={idx} className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 w-4 text-center shrink-0">{idx + 1}.</span>
+                          <input
+                            type="text"
+                            value={term}
+                            onChange={e => {
+                              const updated = [...(formState.quoteWarrantyTerms || [])];
+                              updated[idx] = e.target.value;
+                              setFormState(prev => ({ ...prev, quoteWarrantyTerms: updated }));
+                            }}
+                            className="flex-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = (formState.quoteWarrantyTerms || []).filter((_, i) => i !== idx);
+                              setFormState(prev => ({ ...prev, quoteWarrantyTerms: updated }));
+                            }}
+                            className="p-1 text-rose-500 hover:bg-rose-50 rounded cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ACTION FOOTERS IN THE CONTROL CARD */}
             <div className="pt-4 border-t border-slate-100 flex gap-3 justify-between items-center bg-transparent mt-2">
               <button
@@ -678,7 +897,7 @@ export default function PrintSettingsManager({
                 <div className="space-y-3">
                   <div className="text-center">
                     <h5 className="font-black tracking-normal uppercase text-sm" style={{ color: formState.primaryColor }}>
-                      BẢNG BÁO GIÁ CẤU HÌNH PC
+                      {formState.quoteTitle || 'BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH'}
                     </h5>
                     <p className="text-[9px] font-bold text-slate-400 mt-0.5">Ngày lập báo giá: {new Date().toLocaleDateString('vi-VN')}</p>
                   </div>
@@ -690,38 +909,76 @@ export default function PrintSettingsManager({
                     <p>Yêu cầu: <span className="text-slate-605">Dàn PC Thiết Kế Đồ Họa 3D / Render Video</span></p>
                   </div>
 
-                  {/* Quotation items mock */}
-                  <div>
-                    <h6 className="font-extrabold text-[10px] text-slate-400 uppercase tracking-wider mb-1.5">Chi tiết cấu hình đề xuất:</h6>
-                    <div className="space-y-1.5">
-                      {[
-                        { part: "CPU", name: "Intel Core i7-14700F (Bh 36T)", price: 9850000 },
-                        { part: "Mainboard", name: "MSI B760M Mortar Wifi D4 (Bh 36T)", price: 3850000 },
-                        { part: "RAM", name: "Corsair Vengeance LPX 32GB (Bh 36T)", price: 2150000 },
-                        { part: "SSD", name: "Samsung 980 Pro 1TB M2 NVMe (Bh 60T)", price: 2450000 },
-                        { part: "PSU", name: "Antec Neo ECO NE750G Zen Golden (Bh 36T)", price: 1750000 },
-                        { part: "VGA", name: "Giga RTX 4060 WindForce OC 8G (Bh 36T)", price: 8250000 }
-                      ].map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-start text-xs font-semibold">
-                          <div className="pr-1.5 leading-tight">
-                            <span className="text-indigo-650 font-bold bg-indigo-50 text-[10px] px-1 py-0.5 rounded-xs mr-1">{item.part}</span>
-                            <span className="text-slate-900">{item.name}</span>
-                          </div>
-                          <span className="font-bold text-slate-900 shrink-0">{formatVND(item.price)}</span>
-                        </div>
-                      ))}
-                    </div>
+                  {/* Quotation items mock matrix */}
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full border-collapse border border-slate-300 text-[10px]">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700">
+                          <th className="border border-slate-300 py-1 px-1 text-center">STT</th>
+                          <th className="border border-slate-300 py-1 px-1 text-left">SẢN PHẨM</th>
+                          <th className="border border-slate-300 py-1 px-1 text-center">SL</th>
+                          <th className="border border-slate-300 py-1 px-1 text-right">ĐƠN GIÁ</th>
+                          {formState.showQuoteWarrantyColumn !== false && (
+                            <th className="border border-slate-300 py-1 px-1 text-center">BH</th>
+                          )}
+                          {formState.showQuoteStockColumn !== false && (
+                            <th className="border border-slate-300 py-1 px-1 text-center text-blue-700">TÌNH TRẠNG</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { name: "CPU Intel Core i7-14700F", qty: 1, price: 9850000, bh: "36T" },
+                          { name: "Mainboard MSI B760M Mortar Wifi", qty: 1, price: 3850000, bh: "36T" },
+                          { name: "RAM Corsair Vengeance 32GB", qty: 2, price: 2150000, bh: "36T" },
+                          { name: "VGA Giga RTX 4060 WindForce 8G", qty: 1, price: 8250000, bh: "36T" }
+                        ].map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="border border-slate-300 py-1 text-center font-bold">{idx + 1}</td>
+                            <td className="border border-slate-300 py-1 px-1.5 font-semibold text-slate-900">{item.name}</td>
+                            <td className="border border-slate-300 py-1 text-center font-bold">{item.qty}</td>
+                            <td className="border border-slate-300 py-1 text-right px-1 font-semibold">{formatVND(item.price)}</td>
+                            {formState.showQuoteWarrantyColumn !== false && (
+                              <td className="border border-slate-300 py-1 text-center text-slate-600 font-bold">{item.bh}</td>
+                            )}
+                            {formState.showQuoteStockColumn !== false && (
+                              <td className="border border-slate-300 py-1 text-center font-extrabold text-blue-700 uppercase text-[9px]">{formState.quoteStockStatusText || 'SẴN HÀNG'}</td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
 
                   <div className="border-t border-dashed border-slate-300 my-2" />
 
                   {/* Calculations quotation */}
                   <div className="text-xs font-semibold text-slate-705 space-y-1">
-                    <div className="flex justify-between items-center text-sm font-black border-t border-dashed border-slate-205 pt-1.5 mt-1.5">
+                    <div className="flex justify-between items-center text-xs font-black border-t border-dashed border-slate-205 pt-1.5 mt-1.5">
                       <span className="uppercase" style={{ color: formState.primaryColor }}>TỔNG CỘNG CẤU HÌNH BAO GỒM VAT:</span>
-                      <span className="text-indigo-655 font-black text-base">{formatVND(28300000)}</span>
+                      <span className="text-indigo-655 font-black text-sm">{formatVND(26250000)}</span>
                     </div>
                   </div>
+
+                  {/* Warranty Terms preview */}
+                  {formState.showQuoteWarrantyTerms !== false && (formState.quoteWarrantyTerms?.length || 0) > 0 && (
+                    <div className="pt-2 border-t border-slate-200 text-[9px] text-slate-700 space-y-0.5">
+                      <p className="font-bold uppercase text-slate-800" style={{ color: formState.primaryColor }}>MỘT SỐ QUY ĐỊNH BẢO HÀNH:</p>
+                      <ul className="list-decimal pl-3 space-y-0.5 font-medium">
+                        {(formState.quoteWarrantyTerms || []).filter(t => t.trim()).slice(0, 3).map((term, i) => (
+                          <li key={i}>{term}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Vat & Validity notes preview */}
+                  {(formState.quoteVatNote || formState.quoteValidityNote) && (
+                    <div className="text-[9px] font-bold text-slate-500 italic space-y-0.5">
+                      {formState.quoteVatNote && <p>{formState.quoteVatNote}</p>}
+                      {formState.quoteValidityNote && <p>{formState.quoteValidityNote}</p>}
+                    </div>
+                  )}
                 </div>
               )}
 
