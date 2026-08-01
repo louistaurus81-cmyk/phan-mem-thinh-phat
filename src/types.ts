@@ -283,6 +283,35 @@ export interface PrintSettings {
   quoteSignatureStoreLabel?: string;
 }
 
+export function formatAccountName(name: string): string {
+  if (!name) return "";
+  return name
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function formatBankName(bankId: string): string {
+  if (!bankId) return "Ngân Hàng";
+  const upper = bankId.trim().toUpperCase();
+  if (upper === 'TPB' || upper === 'TPBANK' || upper === 'TP BANK') return 'TP Bank';
+  if (upper === 'VCB' || upper === 'VIETCOMBANK') return 'Vietcombank';
+  if (upper === 'MB' || upper === 'MBBANK') return 'MB Bank';
+  if (upper === 'TCB' || upper === 'TECHCOMBANK') return 'Techcombank';
+  if (upper === 'CTG' || upper === 'VIETINBANK') return 'VietinBank';
+  if (upper === 'BID' || upper === 'BIDV') return 'BIDV';
+  if (upper === 'ACB') return 'ACB';
+  if (upper === 'VPB' || upper === 'VPBANK') return 'VPBank';
+  if (upper === 'STB' || upper === 'SACOMBANK') return 'Sacombank';
+  if (upper === 'VBA' || upper === 'AGRIBANK') return 'Agribank';
+  if (upper === 'VIB') return 'VIB';
+  if (upper === 'HDB' || upper === 'HDBANK') return 'HDBank';
+  if (upper === 'SHB') return 'SHB';
+  return bankId;
+}
+
 export function formatWarrantyText(months: number): string {
   if (months === 0.1) return '3 Ngày';
   if (months === 0.2) return '7 Ngày';

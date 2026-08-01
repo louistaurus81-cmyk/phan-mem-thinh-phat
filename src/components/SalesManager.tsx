@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText, generateRandomIMEI, generateRandomBarcode, renderCode39SVG, getUserPermissions } from '../types';
+import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText, formatAccountName, formatBankName, generateRandomIMEI, generateRandomBarcode, renderCode39SVG, getUserPermissions } from '../types';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Plus, 
@@ -2142,8 +2142,8 @@ export default function SalesManager({
                       className="w-32 h-32 object-contain bg-white p-1.5 border border-slate-200 rounded-lg shadow-2xs"
                     />
                     <div className="text-[9px] text-slate-500 mt-1.5 font-bold">
-                      <p className="uppercase text-slate-850">{printSettings.bankId} • {printSettings.bankAccountNo}</p>
-                      <p className="uppercase text-slate-500 mt-0.5">Chủ TK: {printSettings.bankAccountName}</p>
+                      <p className="text-slate-850">{formatBankName(printSettings.bankId)} • {printSettings.bankAccountNo}</p>
+                      <p className="text-slate-500 mt-0.5">Chủ TK: {formatAccountName(printSettings.bankAccountName)}</p>
                     </div>
                   </div>
                 )}

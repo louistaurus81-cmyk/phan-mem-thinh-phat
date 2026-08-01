@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PrintSettings } from '../types';
+import { PrintSettings, formatAccountName, formatBankName } from '../types';
 import { 
   Printer, 
   QrCode, 
@@ -475,14 +475,14 @@ export default function PrintSettingsManager({
                       </div>
                       
                       <div>
-                        <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Tên chủ tài khoản (Không dấu)</label>
+                        <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider mb-1">Tên chủ tài khoản (Tên riêng, viết hoa chữ cái đầu)</label>
                         <input
                           type="text"
                           name="bankAccountName"
                           value={formState.bankAccountName}
                           onChange={handleInputChange}
-                          placeholder="VD: NGUYEN VAN THINH"
-                          className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 uppercase"
+                          placeholder="VD: Hà Thanh Thịnh"
+                          className="w-full text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
                           required
                         />
                       </div>
@@ -1003,9 +1003,9 @@ export default function PrintSettingsManager({
                   </div>
 
                   <div className="text-[10px] space-y-0.5 font-bold text-slate-700 leading-normal">
-                    <p className="text-slate-900">🏦 {BANKS.find(b => b.id === formState.bankId)?.name?.split(' (')[0] || formState.bankId}</p>
+                    <p className="text-slate-900">🏦 {formatBankName(formState.bankId)}</p>
                     <p>Số tài khoản: <span className="font-extrabold text-indigo-650 underline">{formState.bankAccountNo}</span></p>
-                    <p className="uppercase leading-tight text-slate-500 mt-1">Chủ tài khoản: {formState.bankAccountName || 'NGUYEN VAN THINH'}</p>
+                    <p className="leading-tight text-slate-500 mt-1">Chủ tài khoản: {formatAccountName(formState.bankAccountName || 'Hà Thanh Thịnh')}</p>
                   </div>
                 </div>
               )}

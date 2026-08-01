@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings, ProductIMEI, formatWarrantyText } from '../types';
+import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings, ProductIMEI, formatWarrantyText, formatAccountName, formatBankName } from '../types';
 import { 
   Cpu, 
   Trash2, 
@@ -1713,9 +1713,9 @@ export default function PCBuilder({
                       {showBankInfo && (
                         <div className="space-y-1 pt-2">
                           <p className="font-extrabold uppercase text-[0.9em]" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>{customBankHeader || 'Thông tin chuyển khoản:'}</p>
-                          <p>Tên tài khoản: <span className="font-bold text-slate-900">{printSettings?.bankAccountName || "Hà Thanh Thịnh"}</span></p>
+                          <p>Tên tài khoản: <span className="font-bold text-slate-900">{formatAccountName(printSettings?.bankAccountName || "Hà Thanh Thịnh")}</span></p>
                           <p>Số tài khoản: <span className="font-bold text-slate-900">{printSettings?.bankAccountNo || "0041000220324"}</span></p>
-                          <p>Ngân hàng: <span className="font-bold text-slate-900">{printSettings?.bankId === 'VCB' ? 'Vietcombank' : (printSettings?.bankId || 'Ngân Hàng')}</span></p>
+                          <p>Ngân hàng: <span className="font-bold text-slate-900">{formatBankName(printSettings?.bankId || 'TPB')}</span></p>
                           
                           {/* Visual QR quick pay - Only render if showQrCode is true */}
                           {showQrCode && printSettings?.bankAccountNo && (
