@@ -826,7 +826,13 @@ export default function App() {
     logActivity('repair', 'Tiếp nhận thiết bị sửa chữa mới', `Mã phiếu: #${ticket.ticketNumber} - Khách: ${ticket.customerName} (${ticket.customerPhone}) - Thiết bị: ${ticket.deviceName} - Lỗi: ${ticket.issueDescription}`, ticket.estimatedCost, 'info');
   };
 
-  // Advanced repair transitions (terminal locking at status='delivered')
+  const handleUpdateRepairTicket = (updatedTicket: RepairTicket) => {
+    const updated = repairs.map(rep => rep.id === updatedTicket.id ? updatedTicket : rep);
+    saveRepairs(updated);
+    logActivity('repair', 'Chỉnh sửa phiếu / hóa đơn sửa chữa', `Mã phiếu: #${updatedTicket.ticketNumber} - Khách: ${updatedTicket.customerName} - Thiết bị: ${updatedTicket.deviceName}`, updatedTicket.actualCost || updatedTicket.estimatedCost, 'info');
+  };
+
+  // Advanced repair transitions
   const handleUpdateRepairStatus = (
     id: string, 
     status: RepairStatus, 
@@ -847,9 +853,6 @@ export default function App() {
     const updated = repairs.map(rep => {
       if (rep.id !== id) return rep;
       targetTicket = rep;
-      
-      // Block modifying terminal delivered state
-      if (rep.status === 'delivered') return rep;
 
       const payload = {
         ...rep,
@@ -1401,8 +1404,10 @@ export default function App() {
                 currentUser={currentUser!}
                 products={products}
                 imeis={imeis}
+                printSettings={printSettings}
                 onUpdateImeis={saveImeis}
                 onAddRepair={handleAddRepair}
+                onUpdateRepair={handleUpdateRepairTicket}
                 onUpdateRepairStatus={handleUpdateRepairStatus}
                 onAddCustomer={handleAddCustomer}
                 onUpdateProductStock={handleUpdateProductStock}
