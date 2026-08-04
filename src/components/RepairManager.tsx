@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { RepairTicket, Customer, WarrantyCard, RepairStatus, User, Product, computeExpiryDate, ProductIMEI, PrintSettings, formatAccountName, formatBankName } from '../types';
+import { RepairTicket, Customer, WarrantyCard, RepairStatus, User, Product, computeExpiryDate, ProductIMEI, PrintSettings, formatAccountName, formatBankName, formatWarrantyText, getPartWarrantyInfo } from '../types';
 import { 
   Search, 
   Wrench, 
@@ -19,7 +19,8 @@ import {
   Edit3,
   Printer,
   FileText,
-  Check
+  Check,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -102,11 +103,63 @@ export default function RepairManager({
   const [showStatusBar, setShowStatusBar] = useState(false);
   const [actualCost, setActualCost] = useState(0);
   const [solution, setSolution] = useState('');
-  const [usedParts, setUsedParts] = useState<{ productId: string; name: string; price: number; quantity: number; imei?: string }[]>([]);
+  const [usedParts, setUsedParts] = useState<{ productId: string; name: string; price: number; quantity: number; imei?: string; warrantyMonths?: number }[]>([]);
   const [repairWarrantyMonths, setRepairWarrantyMonths] = useState(3); // default 3 months warranty for repair
   const [deliveredAtInput, setDeliveredAtInput] = useState(new Date().toISOString().slice(0, 10));
   const [updateNote, setUpdateNote] = useState('');
   const [selectingImeiForRepair, setSelectingImeiForRepair] = useState<Product | null>(null);
+
+  // Calculate maximum warranty duration among replaced parts in activeTicket or current usedParts state
+  const suggestedWarrantyFromParts = useMemo(() => {
+    const partsList = (activeTicket?.usedParts && activeTicket.usedParts.length > 0)
+      ? activeTicket.usedParts
+      : usedParts;
+
+    if (!partsList || partsList.length === 0) return null;
+
+    let maxWarr = 0;
+    let hasValidPart = false;
+
+    partsList.forEach(part => {
+      const prod = products.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
+      if (prod && typeof prod.warrantyMonths === 'number') {
+        hasValidPart = true;
+        if (prod.warrantyMonths > maxWarr) {
+          maxWarr = prod.warrantyMonths;
+        }
+      }
+    });
+
+    return hasValidPart ? maxWarr : null;
+  }, [activeTicket, usedParts, products]);
+
+  // Formatted string listing parts and their individual warranty durations
+  const partsWarrantyDetails = useMemo(() => {
+    const partsList = (activeTicket?.usedParts && activeTicket.usedParts.length > 0)
+      ? activeTicket.usedParts
+      : usedParts;
+
+    if (!partsList || partsList.length === 0) return '';
+
+    const details: string[] = [];
+    partsList.forEach(part => {
+      const prod = products.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
+      if (prod && typeof prod.warrantyMonths === 'number') {
+        details.push(`${part.name} (${formatWarrantyText(prod.warrantyMonths)})`);
+      } else {
+        details.push(part.name);
+      }
+    });
+
+    return details.join(', ');
+  }, [activeTicket, usedParts, products]);
+
+  // Auto-sync repair warranty months when suggestedWarrantyFromParts is available
+  React.useEffect(() => {
+    if (suggestedWarrantyFromParts !== null) {
+      setRepairWarrantyMonths(suggestedWarrantyFromParts);
+    }
+  }, [suggestedWarrantyFromParts, activeTicketId]);
 
   // Repair debt states
   const [isRepairDebt, setIsRepairDebt] = useState(false);
@@ -226,9 +279,10 @@ export default function RepairManager({
 
   // Handle addition of replacement component & auto calculate cost
   const handleAddPart = (p: Product, imei?: string) => {
+    const warrMonths = typeof p.warrantyMonths === 'number' ? p.warrantyMonths : 12;
     if (imei) {
       // For products with IMEI, we always add them as separate line items to keep track of individual IMEIs
-      setUsedParts(prev => [...prev, { productId: p.id, name: `${p.name} (S/N: ${imei})`, price: p.price, quantity: 1, imei }]);
+      setUsedParts(prev => [...prev, { productId: p.id, name: `${p.name} (S/N: ${imei})`, price: p.price, quantity: 1, imei, warrantyMonths: warrMonths }]);
       
       // Update global IMEI list status to sold
       if (onUpdateImeis) {
@@ -247,7 +301,7 @@ export default function RepairManager({
         updated[existingIndex].quantity += 1;
         setUsedParts(updated);
       } else {
-        setUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1 }]);
+        setUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1, warrantyMonths: warrMonths }]);
       }
     }
 
@@ -883,6 +937,28 @@ export default function RepairManager({
                       {activeTicket.status === 'completed' && (
                         <>
                           <p className="text-xs font-bold text-slate-800">BÀN GIAO THIẾT BỊ MÁY</p>
+
+                          {suggestedWarrantyFromParts !== null && (
+                            <div className="bg-indigo-50/90 border border-indigo-200/80 p-2.5 rounded-xl space-y-1 my-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-indigo-900 flex items-center gap-1.5">
+                                  <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                                  Đồng bộ BH theo linh kiện thay thế
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setRepairWarrantyMonths(suggestedWarrantyFromParts)}
+                                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-[11px] flex items-center gap-1 transition cursor-pointer shadow-2xs shrink-0"
+                                >
+                                  <RefreshCw className="w-3 h-3" /> Áp dụng ({formatWarrantyText(suggestedWarrantyFromParts)})
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-indigo-700 font-medium">
+                                Linh kiện: <span className="font-semibold">{partsWarrantyDetails}</span>
+                              </p>
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-2 gap-3">
                             <div>
                               <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Ngày bàn giao máy</label>
@@ -899,15 +975,19 @@ export default function RepairManager({
                                 id="select-repair-warranty"
                                 value={repairWarrantyMonths}
                                 onChange={e => setRepairWarrantyMonths(Number(e.target.value))}
-                                className="w-full text-xs bg-white border border-slate-200 p-2 rounded-md focus:outline-hidden cursor-pointer"
+                                className="w-full text-xs bg-white border border-slate-200 p-2 rounded-md focus:outline-hidden cursor-pointer font-bold text-slate-800"
                               >
-                                <option value={0.1}>3 ngày</option>
-                                <option value={0.2}>7 ngày</option>
-                                <option value={0.3}>Bao test</option>
+                                <option value={0}>Không bảo hành (0 ngày)</option>
+                                <option value={0.1}>3 ngày bảo hành</option>
+                                <option value={0.2}>7 ngày bảo hành</option>
+                                <option value={0.3}>Bao test (0 ngày)</option>
                                 <option value={1}>1 tháng bảo hành</option>
+                                <option value={2}>2 tháng bảo hành</option>
                                 <option value={3}>3 tháng bảo hành (Mặc định)</option>
                                 <option value={6}>6 tháng bảo hành</option>
                                 <option value={12}>12 tháng bảo hành</option>
+                                <option value={24}>24 tháng bảo hành</option>
+                                <option value={36}>36 tháng bảo hành</option>
                               </select>
                             </div>
                           </div>
@@ -1543,13 +1623,51 @@ export default function RepairManager({
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-600 font-semibold mb-1">Hạn bảo hành dịch vụ</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-slate-600 font-semibold">Hạn bảo hành dịch vụ</label>
+                        {suggestedWarrantyFromParts !== null && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
+                              setEditWarrantyUntil(computeExpiryDate(baseDate, suggestedWarrantyFromParts));
+                            }}
+                            className="text-[10px] text-indigo-600 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                            title="Tự động đồng bộ theo linh kiện thay thế"
+                          >
+                            <RefreshCw className="w-3 h-3" /> Đồng bộ ({formatWarrantyText(suggestedWarrantyFromParts)})
+                          </button>
+                        )}
+                      </div>
                       <input 
                         type="date" 
                         value={editWarrantyUntil}
                         onChange={e => setEditWarrantyUntil(e.target.value)}
                         className="w-full bg-white border border-slate-200 px-3 py-2 rounded-lg font-medium text-slate-900 focus:outline-hidden focus:border-indigo-500"
                       />
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {[
+                          { label: '3N', m: 0.1 },
+                          { label: '7N', m: 0.2 },
+                          { label: '1T', m: 1 },
+                          { label: '3T', m: 3 },
+                          { label: '6T', m: 6 },
+                          { label: '12T', m: 12 },
+                          { label: '24T', m: 24 },
+                        ].map((btn) => (
+                          <button
+                            key={btn.label}
+                            type="button"
+                            onClick={() => {
+                              const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
+                              setEditWarrantyUntil(computeExpiryDate(baseDate, btn.m));
+                            }}
+                            className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 font-semibold text-[10px] rounded transition cursor-pointer"
+                          >
+                            +{btn.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1590,20 +1708,20 @@ export default function RepairManager({
       {/* Print Repair Invoice Modal */}
       <AnimatePresence>
         {showPrintModal && printingTicket && (
-          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
             <motion.div 
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowPrintModal(false)}
-              className="fixed inset-0 bg-black"
+              className="fixed inset-0 bg-black/40"
             />
             
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 shadow-xl w-full max-w-2xl z-20 relative max-h-[90vh] overflow-y-auto"
+              className="bg-white rounded-2xl p-6 shadow-2xl w-full max-w-3xl z-10 relative my-auto max-h-[92vh] overflow-y-auto"
             >
               <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100 no-print">
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-1.5">
@@ -1629,13 +1747,29 @@ export default function RepairManager({
               {/* Printable Invoice Container */}
               <div id="printable-repair-invoice" className="p-6 border border-slate-200 rounded-xl bg-white space-y-6 text-slate-900 text-xs font-sans">
                 {/* Store Header */}
-                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-4">
-                  <div>
-                    <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">
-                      {printSettings?.storeName || 'CỬA HÀNG THIẾT BỊ MÁY TÍNH & DỊCH VỤ THỊNH PHÁT'}
-                    </h2>
-                    <p className="text-xs text-slate-600 font-medium mt-1">{printSettings?.storeAddress || 'Địa chỉ: Trung Tâm Kỹ Thuật & Sửa Chữa Máy Tính'}</p>
-                    <p className="text-xs text-slate-600 font-medium">Hotline / Zalo: <span className="font-bold text-slate-900">{printSettings?.storePhone || '0900.000.000'}</span></p>
+                <div className="flex justify-between items-start border-b-2 border-slate-900 pb-4 gap-4">
+                  <div className="flex items-center gap-3">
+                    {printSettings?.showLogoSymbol !== false && (
+                      <div className="shrink-0">
+                        {printSettings?.storeLogoImage ? (
+                          <img src={printSettings.storeLogoImage} style={{ width: `${printSettings?.storeLogoWidth || 90}px`, objectFit: 'contain' }} alt="Logo" />
+                        ) : (
+                          <div 
+                            className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-black shadow-xs shrink-0"
+                            style={{ backgroundColor: printSettings?.primaryColor || '#4f46e5' }}
+                          >
+                            <span className="text-lg font-bold">{printSettings?.storeLogoText || "TP"}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div>
+                      <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                        {printSettings?.storeName || 'CỬA HÀNG THIẾT BỊ MÁY TÍNH & DỊCH VỤ THỊNH PHÁT'}
+                      </h2>
+                      <p className="text-xs text-slate-600 font-medium mt-0.5">{printSettings?.storeAddress || 'Địa chỉ: Trung Tâm Kỹ Thuật & Sửa Chữa Máy Tính'}</p>
+                      <p className="text-xs text-slate-600 font-medium">Hotline / Zalo: <span className="font-bold text-slate-900">{printSettings?.storePhone || '0900.000.000'}</span></p>
+                    </div>
                   </div>
                   <div className="text-right shrink-0">
                     <span className="inline-block bg-slate-900 text-white font-mono font-bold text-sm px-3 py-1 rounded-sm">
@@ -1687,23 +1821,35 @@ export default function RepairManager({
                     <table className="w-full text-left border-collapse border border-slate-200">
                       <thead>
                         <tr className="bg-slate-100 text-slate-700 text-[11px]">
-                          <th className="p-2 border border-slate-200 font-bold">STT</th>
+                          <th className="p-2 border border-slate-200 font-bold text-center">STT</th>
                           <th className="p-2 border border-slate-200 font-bold">Tên linh kiện</th>
                           <th className="p-2 border border-slate-200 font-bold text-center">SL</th>
                           <th className="p-2 border border-slate-200 font-bold text-right">Đơn giá</th>
+                          <th className="p-2 border border-slate-200 font-bold text-center">Bảo hành linh kiện</th>
                           <th className="p-2 border border-slate-200 font-bold text-right">Thành tiền</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {printingTicket.usedParts.map((part, idx) => (
-                          <tr key={idx} className="border-b border-slate-150">
-                            <td className="p-2 border border-slate-200 text-center">{idx + 1}</td>
-                            <td className="p-2 border border-slate-200 font-semibold">{part.name}</td>
-                            <td className="p-2 border border-slate-200 text-center">{part.quantity}</td>
-                            <td className="p-2 border border-slate-200 text-right">{formatVND(part.price)}</td>
-                            <td className="p-2 border border-slate-200 text-right font-bold">{formatVND(part.price * part.quantity)}</td>
-                          </tr>
-                        ))}
+                        {printingTicket.usedParts.map((part, idx) => {
+                          const warrInfo = getPartWarrantyInfo(part, printingTicket.deliveredAt || printingTicket.createdAt.slice(0, 10), products);
+                          return (
+                            <tr key={idx} className="border-b border-slate-150">
+                              <td className="p-2 border border-slate-200 text-center font-medium">{idx + 1}</td>
+                              <td className="p-2 border border-slate-200 font-semibold text-slate-900">{part.name}</td>
+                              <td className="p-2 border border-slate-200 text-center font-bold">{part.quantity}</td>
+                              <td className="p-2 border border-slate-200 text-right font-mono">{formatVND(part.price)}</td>
+                              <td className="p-2 border border-slate-200 text-center">
+                                <span className="inline-block px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-800 font-extrabold text-[10.5px] rounded">
+                                  🛡️ {warrInfo.warrantyText}
+                                </span>
+                                {warrInfo.expiryDate && (
+                                  <p className="text-[9.5px] text-slate-500 font-medium mt-0.5">Hạn BH: {warrInfo.expiryDate}</p>
+                                )}
+                              </td>
+                              <td className="p-2 border border-slate-200 text-right font-bold text-slate-900 font-mono">{formatVND(part.price * part.quantity)}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

@@ -842,7 +842,7 @@ export default function App() {
       warrantyUntil?: string; 
       deliveredAt?: string; 
       note?: string;
-      usedParts?: { productId: string; name: string; quantity: number; price: number }[];
+      usedParts?: { productId: string; name: string; quantity: number; price: number; warrantyMonths?: number; imei?: string }[];
       debtAmount?: number;
       debtDueDate?: string;
     }
@@ -888,14 +888,29 @@ export default function App() {
 
       // If transition to 'delivered' occurs, also register a service repair warranty card
       if (status === 'delivered' && payload.warrantyUntil) {
+        const startDate = new Date(payload.deliveredAt || new Date().toISOString().slice(0, 10));
+        const expiryDate = new Date(payload.warrantyUntil);
+        const diffDays = Math.round((expiryDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+        let computedMonths = 3;
+        if (diffDays <= 4) computedMonths = 0.1; // 3 days
+        else if (diffDays <= 8) computedMonths = 0.2; // 7 days
+        else if (diffDays <= 35) computedMonths = 1;
+        else if (diffDays <= 65) computedMonths = 2;
+        else if (diffDays <= 100) computedMonths = 3;
+        else if (diffDays <= 200) computedMonths = 6;
+        else if (diffDays <= 390) computedMonths = 12;
+        else if (diffDays <= 750) computedMonths = 24;
+        else if (diffDays <= 1120) computedMonths = 36;
+        else computedMonths = Math.max(1, Math.round(diffDays / 30));
+
         const repairWarrantyCard: WarrantyCard = {
           id: `warr_repaired_${Date.now()}`,
           serialNumber: rep.deviceSerial || `REP-${rep.ticketNumber}`,
           productName: `Dịch vụ sửa máy: ${rep.deviceName}`,
           customerName: rep.customerName,
           customerPhone: rep.customerPhone,
-          purchaseDate: new Date().toISOString().slice(0, 10),
-          warrantyMonths: 3, // standard 3-month post-repair warranty
+          purchaseDate: payload.deliveredAt || new Date().toISOString().slice(0, 10),
+          warrantyMonths: computedMonths,
           expiryDate: payload.warrantyUntil,
           status: 'active',
           notes: `Bảo hành dịch vụ sửa chữa số ${rep.ticketNumber}. Giải pháp: ${payload.solution || 'Thay thế linh kiện'}`,

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { WarrantyCard, Customer, User, SalesInvoice, RepairTicket, formatWarrantyText, computeExpiryDate } from '../types';
+import { WarrantyCard, Customer, User, SalesInvoice, RepairTicket, Product, formatWarrantyText, computeExpiryDate, getPartWarrantyInfo } from '../types';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Search, 
@@ -24,6 +24,7 @@ interface WarrantyManagerProps {
   currentUser: User;
   onAddWarranty: (card: WarrantyCard) => void;
   invoices: SalesInvoice[];
+  products?: Product[];
 }
 
 function SmartImeiBadge({ serialNumber, searchQuery = '' }: { serialNumber: string; searchQuery?: string }) {
@@ -107,7 +108,8 @@ export default function WarrantyManager({
   users,
   currentUser,
   onAddWarranty,
-  invoices
+  invoices,
+  products = []
  }: WarrantyManagerProps) {
   const [portalSearch, setPortalSearch] = useState('');
   const [activeSearchResult, setActiveSearchResult] = useState<{ type: 'warranty' | 'repair', data: WarrantyCard | RepairTicket } | null>(null);
@@ -956,20 +958,20 @@ export default function WarrantyManager({
       {/* View Repair Invoice Modal */}
       <AnimatePresence>
         {viewRepairInvoiceModal && (
-          <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
             <motion.div 
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setViewRepairInvoiceModal(null)}
-              className="fixed inset-0 bg-black"
+              className="fixed inset-0 bg-black/40"
             />
             
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[2rem] p-8 shadow-2xl w-full max-w-2xl z-10 relative max-h-[85vh] overflow-y-auto"
+              className="bg-white rounded-[2rem] p-6 sm:p-8 shadow-2xl w-full max-w-3xl z-10 relative my-auto max-h-[90vh] overflow-y-auto"
             >
               <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
                 <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2 uppercase tracking-wider">
@@ -1028,27 +1030,39 @@ export default function WarrantyManager({
                         <th className="py-2.5 px-4 font-bold">Mục lục sửa chữa / linh kiện</th>
                         <th className="py-2.5 px-4 font-bold text-center">SL</th>
                         <th className="py-2.5 px-4 font-bold text-right">Đơn giá</th>
+                        <th className="py-2.5 px-4 font-bold text-center">Bảo hành linh kiện</th>
                         <th className="py-2.5 px-4 font-bold text-right">Tổng tiền</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {/* Component listing */}
                       {viewRepairInvoiceModal.usedParts && viewRepairInvoiceModal.usedParts.length > 0 ? (
-                        viewRepairInvoiceModal.usedParts.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/50">
-                            <td className="py-2.5 px-4 text-slate-800 font-semibold">Linh kiện: {item.name}</td>
-                            <td className="py-2.5 px-4 text-center font-bold text-slate-600">{item.quantity}</td>
-                            <td className="py-2.5 px-4 text-right font-mono text-slate-600">
-                              {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.price)}
-                            </td>
-                            <td className="py-2.5 px-4 text-right font-bold text-slate-800 font-mono">
-                              {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.price * item.quantity)}
-                            </td>
-                          </tr>
-                        ))
+                        viewRepairInvoiceModal.usedParts.map((item, idx) => {
+                          const warrInfo = getPartWarrantyInfo(item, viewRepairInvoiceModal.deliveredAt || viewRepairInvoiceModal.createdAt.slice(0, 10), products);
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50/50">
+                              <td className="py-2.5 px-4 text-slate-800 font-semibold">Linh kiện: {item.name}</td>
+                              <td className="py-2.5 px-4 text-center font-bold text-slate-600">{item.quantity}</td>
+                              <td className="py-2.5 px-4 text-right font-mono text-slate-600">
+                                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.price)}
+                              </td>
+                              <td className="py-2.5 px-4 text-center">
+                                <span className="inline-block px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 font-extrabold text-[10.5px] rounded">
+                                  🛡️ {warrInfo.warrantyText}
+                                </span>
+                                {warrInfo.expiryDate && (
+                                  <p className="text-[9.5px] text-slate-500 font-medium mt-0.5">Hạn: {warrInfo.expiryDate}</p>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-bold text-slate-800 font-mono">
+                                {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.price * item.quantity)}
+                              </td>
+                            </tr>
+                          );
+                        })
                       ) : (
                         <tr>
-                          <td colSpan={4} className="py-2.5 px-4 text-center text-slate-400 italic">
+                          <td colSpan={5} className="py-2.5 px-4 text-center text-slate-400 italic">
                             Không sử dụng linh kiện rời (hoặc tính gộp trong tiền công)
                           </td>
                         </tr>
@@ -1064,10 +1078,10 @@ export default function WarrantyManager({
                         if (laborFee > 0 || !viewRepairInvoiceModal.usedParts || viewRepairInvoiceModal.usedParts.length === 0) {
                           return (
                             <tr className="hover:bg-slate-50/50">
-                              <td colSpan={2} className="py-2.5 px-4 text-slate-800 font-semibold italic">
+                              <td colSpan={3} className="py-2.5 px-4 text-slate-800 font-semibold italic">
                                 Chi phí kỹ thuật & Tiền công dịch vụ
                               </td>
-                              <td className="py-2.5 px-4 text-center text-slate-500 font-mono">-</td>
+                              <td className="py-2.5 px-4 text-center text-slate-400 font-mono">-</td>
                               <td className="py-2.5 px-4 text-right font-bold text-slate-800 font-mono">
                                 {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(laborFee)}
                               </td>

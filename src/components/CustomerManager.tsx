@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Customer, SalesInvoice, RepairTicket } from '../types';
+import { Customer, SalesInvoice, RepairTicket, getPartWarrantyInfo } from '../types';
 import { 
   Search, 
   User, 
@@ -628,6 +628,43 @@ export default function CustomerManager({
                       <p className="bg-emerald-50 border border-emerald-100/30 p-3 rounded-xl font-semibold text-emerald-800 mt-1 leading-normal">
                         {selectedRepairForModal.solution}
                       </p>
+                    </div>
+                  )}
+
+                  {selectedRepairForModal.usedParts && selectedRepairForModal.usedParts.length > 0 && (
+                    <div>
+                      <p className="text-slate-400 font-bold uppercase text-[9px] tracking-wider mb-1">Linh kiện đã thay thế & bảo hành:</p>
+                      <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left bg-white">
+                          <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-[10px] uppercase font-bold">
+                            <tr>
+                              <th className="py-2 px-3">Tên linh kiện</th>
+                              <th className="py-2 px-3 text-center">SL</th>
+                              <th className="py-2 px-3 text-center">Bảo hành LK</th>
+                              <th className="py-2 px-3 text-right">Đơn giá</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {selectedRepairForModal.usedParts.map((item, idx) => {
+                              const warrInfo = getPartWarrantyInfo(item, selectedRepairForModal.deliveredAt || selectedRepairForModal.createdAt.slice(0, 10));
+                              return (
+                                <tr key={idx}>
+                                  <td className="py-2 px-3 font-semibold text-slate-800">{item.name}</td>
+                                  <td className="py-2 px-3 text-center font-bold text-slate-600">{item.quantity}</td>
+                                  <td className="py-2 px-3 text-center">
+                                    <span className="inline-block px-1.5 py-0.5 bg-indigo-50 border border-indigo-100 text-indigo-700 font-extrabold text-[10px] rounded">
+                                      🛡️ {warrInfo.warrantyText}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-mono font-semibold text-slate-700">
+                                    {formatVND(item.price)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </div>

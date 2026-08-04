@@ -210,7 +210,7 @@ export interface RepairTicket {
   note?: string;
   processedBy?: string;
   linkedInvoiceId?: string; // ADDED: Link to original invoice
-  usedParts?: { productId: string, name: string, quantity: number, price: number }[]; // ADDED: Parts used in repair
+  usedParts?: { productId: string, name: string, quantity: number, price: number, warrantyMonths?: number, imei?: string }[]; // ADDED: Parts used in repair
 }
 
 export interface WarrantyCard {
@@ -336,6 +336,31 @@ export function computeExpiryDate(startDateStr: string, months: number): string 
     d.setMonth(d.getMonth() + months);
   }
   return d.toISOString().slice(0, 10);
+}
+
+export function getPartWarrantyInfo(
+  part: { productId: string; name: string; quantity: number; price: number; warrantyMonths?: number; imei?: string },
+  baseDateStr?: string,
+  products?: { id: string; sku?: string; name: string; warrantyMonths?: number }[]
+) {
+  let months = part.warrantyMonths;
+  if (months === undefined && products && products.length > 0) {
+    const matched = products.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
+    if (matched && typeof matched.warrantyMonths === 'number') {
+      months = matched.warrantyMonths;
+    }
+  }
+  if (months === undefined) {
+    months = 12; // default standard
+  }
+
+  const warrantyText = formatWarrantyText(months);
+  let expiryDate: string | null = null;
+  if (baseDateStr && months > 0) {
+    expiryDate = computeExpiryDate(baseDateStr, months);
+  }
+
+  return { months, warrantyText, expiryDate };
 }
 
 export function generateRandomIMEI(): string {
