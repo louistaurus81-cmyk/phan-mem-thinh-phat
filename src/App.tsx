@@ -1121,6 +1121,43 @@ export default function App() {
     );
   };
 
+  const handleDeleteDebt = (debtId: string) => {
+    const targetDebt = debts.find(d => d.id === debtId);
+    if (!targetDebt) return;
+
+    const nextDebts = debts.filter(d => d.id !== debtId);
+    saveDebts(nextDebts);
+
+    if (targetDebt.invoiceId || targetDebt.invoiceNumber) {
+      const targetInvoice = invoices.find(i => 
+        (targetDebt.invoiceId && i.id === targetDebt.invoiceId) ||
+        (targetDebt.invoiceNumber && i.invoiceNumber === targetDebt.invoiceNumber)
+      );
+      if (targetInvoice && targetInvoice.debtAmount) {
+        const nextInvoices = invoices.map(i => i.id === targetInvoice.id ? { ...i, debtAmount: 0 } : i);
+        saveInvoices(nextInvoices);
+      }
+
+      const targetRepair = repairs.find(r => 
+        (targetDebt.invoiceId && targetDebt.invoiceId === `inv_repair_${r.id}`) ||
+        (targetDebt.invoiceNumber && targetDebt.invoiceNumber === `HD-REP-${r.ticketNumber.replace(/^REP-/, '')}`) ||
+        (targetDebt.note && targetDebt.note.includes(r.ticketNumber))
+      );
+      if (targetRepair && targetRepair.debtAmount) {
+        const nextRepairs = repairs.map(r => r.id === targetRepair.id ? { ...r, debtAmount: 0 } : r);
+        saveRepairs(nextRepairs);
+      }
+    }
+
+    logActivity(
+      'debt',
+      'Xóa bản ghi công nợ',
+      `Admin ${currentUser?.fullName || ''} đã xóa bản ghi công nợ #${targetDebt.invoiceNumber || targetDebt.id} - Khách: ${targetDebt.customerName}`,
+      targetDebt.remainingAmount,
+      'danger'
+    );
+  };
+
   const handleAddRepair = (ticket: RepairTicket) => {
     saveRepairs([...repairs, ticket]);
     logActivity('repair', 'Tiếp nhận thiết bị sửa chữa mới', `Mã phiếu: #${ticket.ticketNumber} - Khách: ${ticket.customerName} (${ticket.customerPhone}) - Thiết bị: ${ticket.deviceName} - Lỗi: ${ticket.issueDescription}`, ticket.estimatedCost, 'info');
@@ -1921,6 +1958,7 @@ export default function App() {
               <DebtManager 
                 debts={debts}
                 onUpdateDebts={saveDebts}
+                onDeleteDebt={handleDeleteDebt}
                 customers={customers}
                 invoices={invoices}
                 printSettings={printSettings}

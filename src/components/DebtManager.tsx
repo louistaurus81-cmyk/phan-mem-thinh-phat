@@ -19,7 +19,8 @@ import {
   User as UserIcon,
   CreditCard,
   ArrowRight,
-  Check
+  Check,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TPLogo from './TPLogo';
@@ -27,6 +28,7 @@ import TPLogo from './TPLogo';
 interface DebtManagerProps {
   debts: Debt[];
   onUpdateDebts: (updated: Debt[]) => void;
+  onDeleteDebt?: (debtId: string) => void;
   customers: Customer[];
   invoices?: SalesInvoice[];
   printSettings?: PrintSettings;
@@ -36,6 +38,7 @@ interface DebtManagerProps {
 export default function DebtManager({ 
   debts, 
   onUpdateDebts, 
+  onDeleteDebt,
   customers, 
   invoices = [], 
   printSettings,
@@ -44,6 +47,11 @@ export default function DebtManager({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all');
   
+  const isAdmin = currentUser?.role === 'admin';
+
+  // Delete modal state
+  const [deletingDebt, setDeletingDebt] = useState<Debt | null>(null);
+
   // Modals state
   const [showPayModal, setShowPayModal] = useState(false);
   const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null);
@@ -604,6 +612,18 @@ export default function DebtManager({
                           >
                             <span>Thu nợ</span>
                             <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {/* Admin Delete button */}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setDeletingDebt(debt)}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-1.5 rounded-lg text-xs font-bold inline-flex items-center justify-center cursor-pointer transition border border-rose-200/80 shrink-0"
+                            title="Xóa bản ghi công nợ này (Chỉ Admin)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                           </button>
                         )}
                       </div>
@@ -1474,6 +1494,68 @@ export default function DebtManager({
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition"
                 >
                   Đóng
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Admin Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deletingDebt && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Xác nhận xóa công nợ</h3>
+                  <p className="text-xs text-slate-500 font-semibold">Quyền hạn Quản trị viên (Admin)</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs space-y-1.5">
+                <p className="font-bold text-slate-800">Mã chứng từ: <span className="font-mono text-indigo-600">#{deletingDebt.invoiceNumber || deletingDebt.id}</span></p>
+                <p className="font-semibold text-slate-700">Khách hàng: <span className="text-slate-900 font-extrabold">{deletingDebt.customerName}</span> ({deletingDebt.customerPhone || 'Không có SĐT'})</p>
+                <p className="font-semibold text-slate-700">Dư nợ còn lại: <span className="text-rose-600 font-black">{formatVND(deletingDebt.remainingAmount)}</span> / Nợ gốc: {formatVND(deletingDebt.amount)}</p>
+                {deletingDebt.note && <p className="text-slate-500 italic text-[11px]">{deletingDebt.note}</p>}
+              </div>
+
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Bạn có chắc chắn muốn xóa bản ghi công nợ này khỏi hệ thống? Thông tin công nợ liên quan cũng sẽ được hủy liên kết tự động.
+              </p>
+
+              <div className="flex justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingDebt(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (deletingDebt) {
+                      if (onDeleteDebt) {
+                        onDeleteDebt(deletingDebt.id);
+                      } else {
+                        onUpdateDebts(debts.filter(d => d.id !== deletingDebt.id));
+                      }
+                      setDeletingDebt(null);
+                    }
+                  }}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xác nhận xóa</span>
                 </button>
               </div>
             </motion.div>
