@@ -109,8 +109,10 @@ export default function DebtManager({
     }
     if (invoices && invoices.length > 0) {
       return invoices.find(i => 
-        (i.customerId === debt.customerId && i.createdAt === debt.createdAt) ||
-        (debt.note && debt.note.includes(i.invoiceNumber))
+        (debt.invoiceNumber && i.invoiceNumber.includes(debt.invoiceNumber.replace(/^HD-/, ''))) ||
+        (i.customerId === debt.customerId && (i.createdAt === debt.createdAt || i.totalAmount === debt.amount)) ||
+        (debt.note && debt.note.includes(i.invoiceNumber)) ||
+        (i.note && debt.invoiceNumber && i.note.includes(debt.invoiceNumber))
       );
     }
     return undefined;

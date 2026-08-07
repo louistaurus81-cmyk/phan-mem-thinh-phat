@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Customer, SalesInvoice, RepairTicket, getPartWarrantyInfo } from '../types';
+import { Customer, SalesInvoice, RepairTicket, Debt, getPartWarrantyInfo } from '../types';
 import { 
   Search, 
   User, 
@@ -12,7 +12,9 @@ import {
   Wrench, 
   Sparkles,
   Calendar,
-  Trash2
+  Trash2,
+  ReceiptText,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -20,6 +22,7 @@ interface CustomerManagerProps {
   customers: Customer[];
   invoices: SalesInvoice[];
   repairs: RepairTicket[];
+  debts?: Debt[];
   onAddCustomer: (customer: Customer) => void;
   onEditCustomer: (customer: Customer) => void;
   onDeleteCustomer?: (id: string) => void;
@@ -29,6 +32,7 @@ export default function CustomerManager({
   customers,
   invoices,
   repairs,
+  debts = [],
   onAddCustomer,
   onEditCustomer,
   onDeleteCustomer
@@ -69,6 +73,16 @@ export default function CustomerManager({
     if (!activeCustomerId) return [];
     return repairs.filter(rep => rep.customerId === activeCustomerId);
   }, [repairs, activeCustomerId]);
+
+  // Retrieve matching debts
+  const customerDebts = useMemo(() => {
+    if (!activeCustomer) return [];
+    return debts.filter(d => 
+      (activeCustomer.id && d.customerId === activeCustomer.id) ||
+      (activeCustomer.phone && d.customerPhone && d.customerPhone === activeCustomer.phone) ||
+      (activeCustomer.name && d.customerName && d.customerName.toLowerCase() === activeCustomer.name.toLowerCase())
+    );
+  }, [debts, activeCustomer]);
 
   // Filter main list
   const filteredCustomers = useMemo(() => {
@@ -266,6 +280,58 @@ export default function CustomerManager({
                     <p className="flex items-start gap-2 text-slate-600 leading-normal">
                       <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" /> <span className="font-semibold text-slate-800">{activeCustomer.address}</span>
                     </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Customer Debt Section */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <ReceiptText className="w-3.5 h-3.5 text-amber-600" /> CÔNG NỢ KHÁCH HÀNG ({customerDebts.length})
+                  </p>
+                  {customerDebts.filter(d => d.status !== 'paid' && d.remainingAmount > 0).length > 0 && (
+                    <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                      Dư nợ: {formatVND(customerDebts.reduce((sum, d) => sum + (d.status !== 'paid' ? d.remainingAmount : 0), 0))}
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                  {customerDebts.map(d => {
+                    const matchedInv = invoices.find(i => (d.invoiceId && i.id === d.invoiceId) || (d.invoiceNumber && i.invoiceNumber === d.invoiceNumber));
+                    const matchedRep = repairs.find(r => (d.invoiceNumber && d.invoiceNumber.includes(r.ticketNumber)) || (d.note && d.note.includes(r.ticketNumber)));
+                    return (
+                      <div 
+                        key={d.id} 
+                        onClick={() => {
+                          if (matchedInv) setSelectedInvoiceForModal(matchedInv);
+                          else if (matchedRep) setSelectedRepairForModal(matchedRep);
+                        }}
+                        className="p-2.5 bg-amber-50/70 hover:bg-amber-100/80 border border-amber-200/80 rounded-xl flex justify-between items-center text-xs cursor-pointer transition shadow-2xs"
+                      >
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-extrabold text-amber-900">
+                              #{d.invoiceNumber || d.id}
+                            </span>
+                            <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-full ${
+                              d.status === 'paid' ? 'bg-emerald-100 text-emerald-800' :
+                              d.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                              {d.status === 'paid' ? 'Đã thanh toán' : d.status === 'partial' ? 'Trả 1 phần' : 'Chưa trả'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-medium mt-1">Hạn trả: {d.dueDate || 'Chưa hẹn'}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-black text-red-600">{formatVND(d.remainingAmount)}</p>
+                          <p className="text-[10px] text-slate-400 font-mono mt-0.5">Nợ gốc: {formatVND(d.amount)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {customerDebts.length === 0 && (
+                    <p className="text-[11px] text-slate-400 italic">Khách hàng không có khoản nợ tồn đọng nào.</p>
                   )}
                 </div>
               </div>

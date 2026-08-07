@@ -356,9 +356,9 @@ export default function App() {
       customerPhone: rep.customerPhone,
       items: invoiceItems,
       totalAmount: totalCost,
-      paymentMethod: 'Tiền mặt',
+      paymentMethod: rep.debtAmount && rep.debtAmount > 0 ? 'Ghi nợ' : 'Tiền mặt',
       createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
-      note: `Xuất kho linh kiện & sửa chữa #${rep.ticketNumber} (${rep.deviceName}). Giải pháp: ${rep.solution || 'Thay thế linh kiện'}`,
+      note: `Xuất kho linh kiện & sửa chữa #${rep.ticketNumber} (${rep.deviceName}). Giải pháp: ${rep.solution || 'Thay thế linh kiện'}` + (rep.debtAmount && rep.debtAmount > 0 ? ` [Ghi nợ sửa chữa: ${rep.debtAmount}₫]` : ''),
       processedBy: rep.processedBy || rep.technician || 'Kỹ thuật viên',
       debtAmount: rep.debtAmount,
       debtDueDate: rep.debtDueDate
@@ -515,7 +515,9 @@ export default function App() {
             curr.totalAmount !== repairInv.totalAmount ||
             curr.items.length !== repairInv.items.length ||
             curr.customerName !== repairInv.customerName ||
-            curr.customerPhone !== repairInv.customerPhone
+            curr.customerPhone !== repairInv.customerPhone ||
+            curr.paymentMethod !== repairInv.paymentMethod ||
+            curr.debtAmount !== repairInv.debtAmount
           ) {
             nextInvoices[existingIdx] = {
               ...curr,
@@ -531,7 +533,113 @@ export default function App() {
     if (hasInvoiceSync) {
       saveInvoices(nextInvoices);
     }
-  }, [dbLoading, invoices, warranties, repairs, products]);
+
+    // 4. Auto-sync debts with repair tickets and sales invoices
+    let hasDebtSync = false;
+    let nextDebts = [...debts];
+
+    repairs.forEach(rep => {
+      if (rep.debtAmount && rep.debtAmount > 0) {
+        const cleanTicketNum = rep.ticketNumber.replace(/^REP-/, '');
+        const invId = `inv_repair_${rep.id}`;
+        const invNum = `HD-REP-${cleanTicketNum}`;
+
+        const existingIdx = nextDebts.findIndex(d => 
+          (d.invoiceId && d.invoiceId === invId) ||
+          (d.invoiceNumber && d.invoiceNumber === invNum) ||
+          (d.note && (d.note.includes(rep.ticketNumber) || d.note.includes(cleanTicketNum)))
+        );
+
+        if (existingIdx === -1) {
+          nextDebts.unshift({
+            id: `debt_${Date.now()}_rep_${rep.id}`,
+            invoiceId: invId,
+            invoiceNumber: invNum,
+            customerId: rep.customerId,
+            customerName: rep.customerName,
+            customerPhone: rep.customerPhone,
+            amount: rep.actualCost || rep.estimatedCost,
+            remainingAmount: rep.debtAmount,
+            dueDate: rep.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            status: rep.debtAmount === (rep.actualCost || rep.estimatedCost) ? 'pending' : 'partial',
+            createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
+            note: `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`
+          });
+          hasDebtSync = true;
+        } else {
+          const curr = nextDebts[existingIdx];
+          if (
+            curr.invoiceId !== invId ||
+            curr.invoiceNumber !== invNum ||
+            curr.customerName !== rep.customerName ||
+            curr.customerPhone !== rep.customerPhone ||
+            curr.remainingAmount !== rep.debtAmount
+          ) {
+            nextDebts[existingIdx] = {
+              ...curr,
+              invoiceId: invId,
+              invoiceNumber: invNum,
+              customerId: rep.customerId || curr.customerId,
+              customerName: rep.customerName,
+              customerPhone: rep.customerPhone || curr.customerPhone,
+              amount: rep.actualCost || rep.estimatedCost,
+              remainingAmount: rep.debtAmount,
+              note: curr.note || `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`
+            };
+            hasDebtSync = true;
+          }
+        }
+      }
+    });
+
+    invoices.forEach(inv => {
+      if (inv.debtAmount && inv.debtAmount > 0) {
+        const existingIdx = nextDebts.findIndex(d => 
+          (d.invoiceId && d.invoiceId === inv.id) ||
+          (d.invoiceNumber && d.invoiceNumber === inv.invoiceNumber)
+        );
+
+        if (existingIdx === -1) {
+          nextDebts.unshift({
+            id: `debt_${Date.now()}_inv_${inv.id}`,
+            invoiceId: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            customerId: inv.customerId,
+            customerName: inv.customerName,
+            customerPhone: inv.customerPhone,
+            amount: inv.totalAmount,
+            remainingAmount: inv.debtAmount,
+            dueDate: inv.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            status: inv.debtAmount === inv.totalAmount ? 'pending' : 'partial',
+            createdAt: inv.createdAt,
+            note: `Công nợ hóa đơn #${inv.invoiceNumber}` + (inv.note ? ` - ${inv.note}` : '')
+          });
+          hasDebtSync = true;
+        } else {
+          const curr = nextDebts[existingIdx];
+          if (
+            curr.invoiceId !== inv.id ||
+            curr.invoiceNumber !== inv.invoiceNumber ||
+            curr.customerName !== inv.customerName ||
+            curr.customerPhone !== inv.customerPhone
+          ) {
+            nextDebts[existingIdx] = {
+              ...curr,
+              invoiceId: inv.id,
+              invoiceNumber: inv.invoiceNumber,
+              customerName: inv.customerName,
+              customerPhone: inv.customerPhone || curr.customerPhone
+            };
+            hasDebtSync = true;
+          }
+        }
+      }
+    });
+
+    if (hasDebtSync) {
+      saveDebts(nextDebts);
+    }
+  }, [dbLoading, invoices, warranties, repairs, products, debts]);
 
   const saveCategories = (newCats: Category[]) => {
     setCategories(newCats);
@@ -1022,6 +1130,52 @@ export default function App() {
     const updated = repairs.map(rep => rep.id === updatedTicket.id ? updatedTicket : rep);
     saveRepairs(updated);
 
+    // Sync linked debt if exists
+    const cleanTicketNum = updatedTicket.ticketNumber.replace(/^REP-/, '');
+    const invId = `inv_repair_${updatedTicket.id}`;
+    const invNum = `HD-REP-${cleanTicketNum}`;
+
+    const existingDebtIdx = debts.findIndex(d => 
+      (d.invoiceId && d.invoiceId === invId) ||
+      (d.invoiceNumber && d.invoiceNumber === invNum) ||
+      (d.note && (d.note.includes(updatedTicket.ticketNumber) || d.note.includes(cleanTicketNum)))
+    );
+
+    if (updatedTicket.debtAmount && updatedTicket.debtAmount > 0) {
+      if (existingDebtIdx > -1) {
+        const nextDebts = [...debts];
+        nextDebts[existingDebtIdx] = {
+          ...nextDebts[existingDebtIdx],
+          invoiceId: invId,
+          invoiceNumber: invNum,
+          customerId: updatedTicket.customerId,
+          customerName: updatedTicket.customerName,
+          customerPhone: updatedTicket.customerPhone,
+          amount: updatedTicket.actualCost || updatedTicket.estimatedCost,
+          remainingAmount: updatedTicket.debtAmount,
+          dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`
+        };
+        saveDebts(nextDebts);
+      } else {
+        const newDebt: Debt = {
+          id: `debt_${Date.now()}`,
+          invoiceId: invId,
+          invoiceNumber: invNum,
+          customerId: updatedTicket.customerId,
+          customerName: updatedTicket.customerName,
+          customerPhone: updatedTicket.customerPhone,
+          amount: updatedTicket.actualCost || updatedTicket.estimatedCost,
+          remainingAmount: updatedTicket.debtAmount,
+          dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          status: updatedTicket.debtAmount === (updatedTicket.actualCost || updatedTicket.estimatedCost) ? 'pending' : 'partial',
+          createdAt: updatedTicket.deliveredAt ? new Date(updatedTicket.deliveredAt).toISOString() : new Date().toISOString(),
+          note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`
+        };
+        saveDebts([...debts, newDebt]);
+      }
+    }
+
     if (updatedTicket.warrantyUntil) {
       const startDateStr = updatedTicket.deliveredAt || updatedTicket.createdAt.slice(0, 10);
       const endDateStr = updatedTicket.warrantyUntil;
@@ -1116,15 +1270,22 @@ export default function App() {
       }
 
       if (status === 'delivered' && finalDetails?.debtAmount && finalDetails.debtAmount > 0) {
+        const cleanTicketNum = rep.ticketNumber.replace(/^REP-/, '');
+        const invId = `inv_repair_${rep.id}`;
+        const invNum = `HD-REP-${cleanTicketNum}`;
         debtToSave = {
           id: `debt_${Date.now()}`,
+          invoiceId: invId,
+          invoiceNumber: invNum,
           customerId: rep.customerId,
           customerName: rep.customerName,
+          customerPhone: rep.customerPhone,
           amount: finalDetails.actualCost || rep.estimatedCost,
           remainingAmount: finalDetails.debtAmount,
           dueDate: finalDetails.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
           status: finalDetails.debtAmount === (finalDetails.actualCost || rep.estimatedCost) ? 'pending' : 'partial',
-          createdAt: new Date().toISOString()
+          createdAt: finalDetails.deliveredAt ? new Date(finalDetails.deliveredAt).toISOString() : new Date().toISOString(),
+          note: `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`
         };
       }
 
@@ -1225,7 +1386,27 @@ export default function App() {
 
     if (debtToSave) {
       setTimeout(() => {
-        saveDebts([...debts, debtToSave!]);
+        setDebts(prevDebts => {
+          const cleanTicketNum = targetTicket?.ticketNumber?.replace(/^REP-/, '') || '';
+          const existingIdx = prevDebts.findIndex(d => 
+            (debtToSave?.invoiceId && d.invoiceId === debtToSave.invoiceId) ||
+            (debtToSave?.invoiceNumber && d.invoiceNumber === debtToSave.invoiceNumber) ||
+            (cleanTicketNum && d.note && d.note.includes(cleanTicketNum))
+          );
+          let nextDebts: Debt[];
+          if (existingIdx > -1) {
+            nextDebts = [...prevDebts];
+            nextDebts[existingIdx] = {
+              ...nextDebts[existingIdx],
+              ...debtToSave,
+              id: nextDebts[existingIdx].id
+            };
+          } else {
+            nextDebts = [debtToSave!, ...prevDebts];
+          }
+          saveDebts(nextDebts);
+          return nextDebts;
+        });
       }, 50);
     }
   };
@@ -1729,6 +1910,7 @@ export default function App() {
                 customers={customers}
                 invoices={invoices}
                 repairs={repairs}
+                debts={debts}
                 onAddCustomer={handleAddCustomer}
                 onEditCustomer={handleEditCustomer}
                 onDeleteCustomer={handleDeleteCustomer}
