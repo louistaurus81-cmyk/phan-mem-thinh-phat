@@ -316,12 +316,32 @@ export default function App() {
     const laborFee = Math.max(0, totalCost - partsTotal);
 
     if (laborFee > 0 || invoiceItems.length === 0) {
+      let laborWarrMonths = 0;
+      if (rep.warrantyUntil) {
+        const startDateStr = rep.deliveredAt || rep.createdAt.slice(0, 10);
+        const startDate = new Date(startDateStr);
+        const endDate = new Date(rep.warrantyUntil);
+        const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+        if (diffDays > 0) {
+          if (diffDays <= 4) laborWarrMonths = 0.1;
+          else if (diffDays <= 8) laborWarrMonths = 0.2;
+          else if (diffDays <= 35) laborWarrMonths = 1;
+          else if (diffDays <= 65) laborWarrMonths = 2;
+          else if (diffDays <= 100) laborWarrMonths = 3;
+          else if (diffDays <= 200) laborWarrMonths = 6;
+          else if (diffDays <= 390) laborWarrMonths = 12;
+          else if (diffDays <= 750) laborWarrMonths = 24;
+          else if (diffDays <= 1120) laborWarrMonths = 36;
+          else laborWarrMonths = Math.max(1, Math.round(diffDays / 30));
+        }
+      }
+
       invoiceItems.push({
         productId: `repair_labor_${rep.id}`,
         productName: `Chi phí kỹ thuật & sửa chữa: ${rep.deviceName}`,
         quantity: 1,
         price: laborFee > 0 ? laborFee : totalCost,
-        warrantyMonths: rep.warrantyUntil ? 3 : 0
+        warrantyMonths: laborWarrMonths
       });
     }
 
@@ -352,9 +372,9 @@ export default function App() {
     let hasWarrChange = false;
     let hasRepairChange = false;
 
-    // 1. Sync repair tickets if they have usedParts with longer warranty
+    // 1. Sync repair tickets if warranty is empty and they have usedParts
     const updatedRepairs = repairs.map(rep => {
-      if (rep.usedParts && rep.usedParts.length > 0) {
+      if (!rep.warrantyUntil && rep.usedParts && rep.usedParts.length > 0) {
         let maxPartW = 0;
         rep.usedParts.forEach(pt => {
           const prod = products.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
@@ -366,13 +386,11 @@ export default function App() {
           const baseDate = rep.deliveredAt || rep.createdAt.slice(0, 10);
           const computedPartExpiry = computeExpiryDate(baseDate, maxPartW);
 
-          if (!rep.warrantyUntil || new Date(computedPartExpiry) > new Date(rep.warrantyUntil)) {
-            hasRepairChange = true;
-            return {
-              ...rep,
-              warrantyUntil: computedPartExpiry
-            };
-          }
+          hasRepairChange = true;
+          return {
+            ...rep,
+            warrantyUntil: computedPartExpiry
+          };
         }
       }
       return rep;
@@ -1003,6 +1021,56 @@ export default function App() {
   const handleUpdateRepairTicket = (updatedTicket: RepairTicket) => {
     const updated = repairs.map(rep => rep.id === updatedTicket.id ? updatedTicket : rep);
     saveRepairs(updated);
+
+    if (updatedTicket.warrantyUntil) {
+      const startDateStr = updatedTicket.deliveredAt || updatedTicket.createdAt.slice(0, 10);
+      const endDateStr = updatedTicket.warrantyUntil;
+      const startDate = new Date(startDateStr);
+      const endDate = new Date(endDateStr);
+      const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+      let computedMonths = 3;
+      if (diffDays <= 4) computedMonths = 0.1;
+      else if (diffDays <= 8) computedMonths = 0.2;
+      else if (diffDays <= 35) computedMonths = 1;
+      else if (diffDays <= 65) computedMonths = 2;
+      else if (diffDays <= 100) computedMonths = 3;
+      else if (diffDays <= 200) computedMonths = 6;
+      else if (diffDays <= 390) computedMonths = 12;
+      else if (diffDays <= 750) computedMonths = 24;
+      else if (diffDays <= 1120) computedMonths = 36;
+      else computedMonths = Math.max(1, Math.round(diffDays / 30));
+
+      const existingIdx = warranties.findIndex(w => w.linkedRepairId === updatedTicket.id || w.serialNumber === (updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`));
+      if (existingIdx > -1) {
+        const nextWarrs = [...warranties];
+        nextWarrs[existingIdx] = {
+          ...nextWarrs[existingIdx],
+          customerName: updatedTicket.customerName,
+          customerPhone: updatedTicket.customerPhone,
+          purchaseDate: startDateStr,
+          warrantyMonths: computedMonths,
+          expiryDate: endDateStr,
+          notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`
+        };
+        saveWarranties(nextWarrs);
+      } else if (updatedTicket.status === 'delivered' || updatedTicket.status === 'completed') {
+        const newWarr: WarrantyCard = {
+          id: `warr_repaired_${updatedTicket.id}`,
+          serialNumber: updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`,
+          productName: `Dịch vụ sửa máy: ${updatedTicket.deviceName}`,
+          customerName: updatedTicket.customerName,
+          customerPhone: updatedTicket.customerPhone,
+          purchaseDate: startDateStr,
+          warrantyMonths: computedMonths,
+          expiryDate: endDateStr,
+          status: 'active',
+          notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`,
+          linkedRepairId: updatedTicket.id
+        };
+        saveWarranties([newWarr, ...warranties]);
+      }
+    }
+
     logActivity('repair', 'Chỉnh sửa phiếu / hóa đơn sửa chữa', `Mã phiếu: #${updatedTicket.ticketNumber} - Khách: ${updatedTicket.customerName} - Thiết bị: ${updatedTicket.deviceName}`, updatedTicket.actualCost || updatedTicket.estimatedCost, 'info');
   };
 
@@ -1074,12 +1142,10 @@ export default function App() {
         const startDateStr = payload.deliveredAt || new Date().toISOString().slice(0, 10);
         let finalExpiryDateStr = payload.warrantyUntil;
 
-        if (maxPartWarranty > 0) {
+        if (maxPartWarranty > 0 && !payload.warrantyUntil) {
           const computedExpiryWithParts = computeExpiryDate(startDateStr, maxPartWarranty);
-          if (new Date(computedExpiryWithParts) > new Date(payload.warrantyUntil)) {
-            finalExpiryDateStr = computedExpiryWithParts;
-            payload.warrantyUntil = computedExpiryWithParts;
-          }
+          finalExpiryDateStr = computedExpiryWithParts;
+          payload.warrantyUntil = computedExpiryWithParts;
         }
 
         const startDate = new Date(startDateStr);

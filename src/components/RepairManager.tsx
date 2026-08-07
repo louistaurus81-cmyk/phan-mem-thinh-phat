@@ -203,6 +203,7 @@ export default function RepairManager({
   const [editCreatedAt, setEditCreatedAt] = useState('');
   const [editDeliveredAt, setEditDeliveredAt] = useState('');
   const [editWarrantyUntil, setEditWarrantyUntil] = useState('');
+  const [editWarrantyMonthsInput, setEditWarrantyMonthsInput] = useState<number | string>(3);
   const [editNote, setEditNote] = useState('');
   const [editUsedParts, setEditUsedParts] = useState<{ productId: string; name: string; price: number; quantity: number; imei?: string; warrantyMonths?: number }[]>([]);
   const [editPartSearch, setEditPartSearch] = useState('');
@@ -210,6 +211,36 @@ export default function RepairManager({
   // Print Repair Invoice Modal state
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printingTicket, setPrintingTicket] = useState<RepairTicket | null>(null);
+
+  const calculateMonthsFromDates = (startStr: string, endStr: string): number => {
+    if (!startStr || !endStr) return 3;
+    const s = new Date(startStr);
+    const e = new Date(endStr);
+    const diffDays = Math.round((e.getTime() - s.getTime()) / (1000 * 3600 * 24));
+    if (diffDays <= 0) return 0;
+    if (diffDays <= 4) return 0.1;
+    if (diffDays <= 8) return 0.2;
+    if (diffDays <= 35) return 1;
+    if (diffDays <= 65) return 2;
+    if (diffDays <= 100) return 3;
+    if (diffDays <= 200) return 6;
+    if (diffDays <= 390) return 12;
+    if (diffDays <= 750) return 24;
+    if (diffDays <= 1120) return 36;
+    return Math.max(1, Math.round(diffDays / 30));
+  };
+
+  const handleEditWarrantyMonthsChange = (m: number) => {
+    setEditWarrantyMonthsInput(m);
+    const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
+    setEditWarrantyUntil(computeExpiryDate(baseDate, m));
+  };
+
+  const handleEditWarrantyDateChange = (dateStr: string) => {
+    setEditWarrantyUntil(dateStr);
+    const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
+    setEditWarrantyMonthsInput(calculateMonthsFromDates(baseDate, dateStr));
+  };
 
   const handleOpenEditModal = (ticket: RepairTicket) => {
     setEditingTicket(ticket);
@@ -224,9 +255,14 @@ export default function RepairManager({
     setEditTechnician(ticket.technician || '');
     setEditProcessedBy(ticket.processedBy || currentUser?.fullName || '');
     setEditStatus(ticket.status || 'checking');
-    setEditCreatedAt(ticket.createdAt ? ticket.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
-    setEditDeliveredAt(ticket.deliveredAt ? ticket.deliveredAt.slice(0, 10) : '');
-    setEditWarrantyUntil(ticket.warrantyUntil ? ticket.warrantyUntil.slice(0, 10) : '');
+    const createdStr = ticket.createdAt ? ticket.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const deliveredStr = ticket.deliveredAt ? ticket.deliveredAt.slice(0, 10) : '';
+    setEditCreatedAt(createdStr);
+    setEditDeliveredAt(deliveredStr);
+    const baseDate = deliveredStr || createdStr || new Date().toISOString().slice(0, 10);
+    const initialExpiry = ticket.warrantyUntil ? ticket.warrantyUntil.slice(0, 10) : computeExpiryDate(baseDate, 3);
+    setEditWarrantyUntil(initialExpiry);
+    setEditWarrantyMonthsInput(calculateMonthsFromDates(baseDate, initialExpiry));
     setEditNote(ticket.note || '');
     setEditUsedParts(ticket.usedParts ? ticket.usedParts.map(p => ({ ...p })) : []);
     setShowEditModal(true);
@@ -552,10 +588,7 @@ export default function RepairManager({
         return;
       }
       
-      let effectiveWarrantyMonths = repairWarrantyMonths;
-      if (suggestedWarrantyFromParts !== null && suggestedWarrantyFromParts > effectiveWarrantyMonths) {
-        effectiveWarrantyMonths = suggestedWarrantyFromParts;
-      }
+      const effectiveWarrantyMonths = repairWarrantyMonths;
 
       // Hands over to client, calculate service warranty
       const expiryDateStr = computeExpiryDate(deliveredAtInput || new Date().toISOString().slice(0, 10), effectiveWarrantyMonths);
@@ -1824,7 +1857,14 @@ export default function RepairManager({
                       <input 
                         type="date" 
                         value={editCreatedAt}
-                        onChange={e => setEditCreatedAt(e.target.value)}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setEditCreatedAt(val);
+                          if (editWarrantyMonthsInput !== '') {
+                            const baseDate = editDeliveredAt || val || new Date().toISOString().slice(0, 10);
+                            setEditWarrantyUntil(computeExpiryDate(baseDate, Number(editWarrantyMonthsInput)));
+                          }
+                        }}
                         className="w-full bg-white border border-slate-200 px-3 py-2 rounded-lg font-medium text-slate-900 focus:outline-hidden focus:border-indigo-500"
                       />
                     </div>
@@ -1833,57 +1873,117 @@ export default function RepairManager({
                       <input 
                         type="date" 
                         value={editDeliveredAt}
-                        onChange={e => setEditDeliveredAt(e.target.value)}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setEditDeliveredAt(val);
+                          if (editWarrantyMonthsInput !== '') {
+                            const baseDate = val || editCreatedAt || new Date().toISOString().slice(0, 10);
+                            setEditWarrantyUntil(computeExpiryDate(baseDate, Number(editWarrantyMonthsInput)));
+                          }
+                        }}
                         className="w-full bg-white border border-slate-200 px-3 py-2 rounded-lg font-medium text-slate-900 focus:outline-hidden focus:border-indigo-500"
                       />
                     </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-slate-600 font-semibold">Hạn bảo hành dịch vụ</label>
-                        {suggestedWarrantyFromParts !== null && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
-                              setEditWarrantyUntil(computeExpiryDate(baseDate, suggestedWarrantyFromParts));
-                            }}
-                            className="text-[10px] text-indigo-600 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
-                            title="Tự động đồng bộ theo linh kiện thay thế"
-                          >
-                            <RefreshCw className="w-3 h-3" /> Đồng bộ ({formatWarrantyText(suggestedWarrantyFromParts)})
-                          </button>
-                        )}
+                  </div>
+
+                  {/* Manual Warranty Customization Box */}
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-3 mt-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                      <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                        Tùy Chỉnh Thời Gian & Hạn Bảo Hành Dịch Vụ Sửa Chữa
+                      </label>
+                      {suggestedWarrantyFromParts !== null && (
+                        <button
+                          type="button"
+                          onClick={() => handleEditWarrantyMonthsChange(suggestedWarrantyFromParts)}
+                          className="text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-md border border-indigo-200 transition cursor-pointer flex items-center gap-1"
+                          title="Tự động đồng bộ thời hạn theo linh kiện thay thế cao nhất"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-indigo-600" />
+                          Đồng bộ linh kiện ({formatWarrantyText(suggestedWarrantyFromParts)})
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-600 font-semibold mb-1 text-[11px]">
+                          Số tháng bảo hành (Nhập thủ công)
+                        </label>
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            min={0}
+                            step={0.1}
+                            value={editWarrantyMonthsInput}
+                            onChange={e => handleEditWarrantyMonthsChange(Number(e.target.value))}
+                            className="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 focus:bg-white text-xs"
+                            placeholder="e.g. 1, 3, 6, 12, 24"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                            Tháng
+                          </span>
+                        </div>
                       </div>
-                      <input 
-                        type="date" 
-                        value={editWarrantyUntil}
-                        onChange={e => setEditWarrantyUntil(e.target.value)}
-                        className="w-full bg-white border border-slate-200 px-3 py-2 rounded-lg font-medium text-slate-900 focus:outline-hidden focus:border-indigo-500"
-                      />
-                      <div className="flex flex-wrap gap-1 mt-1.5">
+
+                      <div>
+                        <label className="block text-slate-600 font-semibold mb-1 text-[11px]">
+                          Hạn bảo hành đến ngày (Date picker)
+                        </label>
+                        <input 
+                          type="date" 
+                          value={editWarrantyUntil}
+                          onChange={e => handleEditWarrantyDateChange(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 focus:bg-white text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400 mb-1.5">Chọn nhanh thời hạn bảo hành:</p>
+                      <div className="flex flex-wrap gap-1.5">
                         {[
-                          { label: '3N', m: 0.1 },
-                          { label: '7N', m: 0.2 },
-                          { label: '1T', m: 1 },
-                          { label: '3T', m: 3 },
-                          { label: '6T', m: 6 },
-                          { label: '12T', m: 12 },
-                          { label: '24T', m: 24 },
+                          { label: '0T (Không BH)', m: 0 },
+                          { label: '3 Ngày', m: 0.1 },
+                          { label: '7 Ngày', m: 0.2 },
+                          { label: '1 Tháng', m: 1 },
+                          { label: '2 Tháng', m: 2 },
+                          { label: '3 Tháng', m: 3 },
+                          { label: '6 Tháng', m: 6 },
+                          { label: '12 Tháng', m: 12 },
+                          { label: '24 Tháng', m: 24 },
+                          { label: '36 Tháng', m: 36 },
                         ].map((btn) => (
                           <button
                             key={btn.label}
                             type="button"
-                            onClick={() => {
-                              const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
-                              setEditWarrantyUntil(computeExpiryDate(baseDate, btn.m));
-                            }}
-                            className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-100 text-slate-700 hover:text-indigo-800 font-semibold text-[10px] rounded transition cursor-pointer"
+                            onClick={() => handleEditWarrantyMonthsChange(btn.m)}
+                            className={`px-2 py-1 font-bold text-[11px] rounded-md transition cursor-pointer border ${
+                              Number(editWarrantyMonthsInput) === btn.m
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                : 'bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border-slate-200'
+                            }`}
                           >
-                            +{btn.label}
+                            {btn.label}
                           </button>
                         ))}
                       </div>
                     </div>
+
+                    {/* Active Badge */}
+                    {editWarrantyUntil && (
+                      <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-lg text-emerald-800 font-bold text-xs flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                          Thời gian BH: {formatWarrantyText(Number(editWarrantyMonthsInput) || 0)}
+                        </span>
+                        <span className="font-mono bg-white px-2 py-0.5 rounded-md border border-emerald-300 text-emerald-700">
+                          Hạn đến: {editWarrantyUntil}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
