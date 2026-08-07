@@ -290,7 +290,21 @@ export default function WarrantyManager({
       expiry.setHours(0, 0, 0, 0);
       const isExpired = expiry.getTime() < today.getTime();
       return matchText && (statusFilter === 'expired' ? isExpired : !isExpired);
-    }).sort((a,b) => b.id.localeCompare(a.id));
+    }).sort((a, b) => {
+      // 1. Compare purchaseDate descending (newest date first)
+      const dateA = a.purchaseDate || '';
+      const dateB = b.purchaseDate || '';
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA);
+      }
+      // 2. If same purchaseDate, preserve creation order in warranties list (newest first)
+      const idxA = warranties.findIndex(w => w.id === a.id);
+      const idxB = warranties.findIndex(w => w.id === b.id);
+      if (idxA !== -1 && idxB !== -1) {
+        return idxA - idxB;
+      }
+      return b.id.localeCompare(a.id);
+    });
   }, [warranties, invoices, dirSearch, statusFilter]);
 
   // Handle Manual Custom Warranty Creation

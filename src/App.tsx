@@ -292,12 +292,92 @@ export default function App() {
     syncWithServer('warranties', newWarrs);
   };
 
-  // Auto-correct any PC build warranty card duration if invoice items specify different warranty months & sync real IMEIs
+  // Auto-correct any PC build or Repair service warranty card duration if invoice items / replacement parts specify different warranty months & sync real IMEIs
   useEffect(() => {
-    if (dbLoading || invoices.length === 0 || warranties.length === 0) return;
+    if (dbLoading || warranties.length === 0) return;
 
-    let hasChange = false;
+    let hasWarrChange = false;
+    let hasRepairChange = false;
+
+    // 1. Sync repair tickets if they have usedParts with longer warranty
+    const updatedRepairs = repairs.map(rep => {
+      if (rep.usedParts && rep.usedParts.length > 0) {
+        let maxPartW = 0;
+        rep.usedParts.forEach(pt => {
+          const prod = products.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
+          const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+          if (ptW > maxPartW) maxPartW = ptW;
+        });
+
+        if (maxPartW > 0) {
+          const baseDate = rep.deliveredAt || rep.createdAt.slice(0, 10);
+          const computedPartExpiry = computeExpiryDate(baseDate, maxPartW);
+
+          if (!rep.warrantyUntil || new Date(computedPartExpiry) > new Date(rep.warrantyUntil)) {
+            hasRepairChange = true;
+            return {
+              ...rep,
+              warrantyUntil: computedPartExpiry
+            };
+          }
+        }
+      }
+      return rep;
+    });
+
+    if (hasRepairChange) {
+      saveRepairs(updatedRepairs);
+    }
+
+    // 2. Sync warranty cards
     const syncedWarrs = warranties.map(w => {
+      // First check if it's a repair service warranty card
+      const matchedRepair = repairs.find(r => {
+        if (w.linkedRepairId && r.id === w.linkedRepairId) return true;
+        if (r.deviceSerial && w.serialNumber === r.deviceSerial) return true;
+        if (r.ticketNumber) {
+          const cleanTicket = r.ticketNumber.replace(/^REP-/, '');
+          if (w.serialNumber.includes(cleanTicket) || w.serialNumber.includes(r.ticketNumber)) return true;
+          if (w.notes && (w.notes.includes(cleanTicket) || w.notes.includes(r.ticketNumber))) return true;
+        }
+        if (w.customerName === r.customerName && (w.customerPhone === r.customerPhone || !w.customerPhone) && 
+           (w.productName.includes(r.deviceName) || w.productName.includes('Dịch vụ'))) return true;
+        return false;
+      });
+
+      if (matchedRepair) {
+        let maxPartW = 0;
+        if (matchedRepair.usedParts && matchedRepair.usedParts.length > 0) {
+          matchedRepair.usedParts.forEach(pt => {
+            const prod = products.find(p => 
+              p.id === pt.productId || 
+              p.sku === pt.productId || 
+              p.name === pt.name ||
+              pt.name.startsWith(p.name) ||
+              p.name.startsWith(pt.name.split(' (S/N:')[0])
+            );
+            const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+            if (ptW > maxPartW) maxPartW = ptW;
+          });
+        }
+
+        if (maxPartW > 0) {
+          const purchaseDate = w.purchaseDate || matchedRepair.deliveredAt || matchedRepair.createdAt.slice(0, 10);
+          const correctPartExpiry = computeExpiryDate(purchaseDate, maxPartW);
+
+          if (w.warrantyMonths !== maxPartW || w.expiryDate !== correctPartExpiry || w.linkedRepairId !== matchedRepair.id) {
+            hasWarrChange = true;
+            return {
+              ...w,
+              warrantyMonths: maxPartW,
+              expiryDate: correctPartExpiry,
+              linkedRepairId: matchedRepair.id
+            };
+          }
+        }
+      }
+
+      // Next check PC builds and sales invoices
       const matchedInv = invoices.find(i => 
         (w.linkedInvoiceId && i.id === w.linkedInvoiceId) || 
         (w.serialNumber && w.serialNumber === i.invoiceNumber) ||
@@ -311,7 +391,7 @@ export default function App() {
           const correctExpiryDate = computeExpiryDate(purchaseDate, correctMaxWarr);
 
           if (w.warrantyMonths !== correctMaxWarr || w.expiryDate !== correctExpiryDate) {
-            hasChange = true;
+            hasWarrChange = true;
             return {
               ...w,
               warrantyMonths: correctMaxWarr,
@@ -324,7 +404,7 @@ export default function App() {
           if (matchedItem && matchedItem.imeis && matchedItem.imeis.length > 0) {
             const realImeisStr = matchedItem.imeis.join(', ');
             if (w.serialNumber !== realImeisStr && w.serialNumber.startsWith('IMEI-') && !matchedItem.imeis.includes(w.serialNumber)) {
-              hasChange = true;
+              hasWarrChange = true;
               return {
                 ...w,
                 serialNumber: realImeisStr
@@ -336,10 +416,10 @@ export default function App() {
       return w;
     });
 
-    if (hasChange) {
+    if (hasWarrChange) {
       saveWarranties(syncedWarrs);
     }
-  }, [dbLoading, invoices, warranties]);
+  }, [dbLoading, invoices, warranties, repairs, products]);
 
   const saveCategories = (newCats: Category[]) => {
     setCategories(newCats);
@@ -886,14 +966,34 @@ export default function App() {
         };
       }
 
-      // If transition to 'delivered' occurs, also register a service repair warranty card
+      // If transition to 'delivered' occurs, also register or update a service repair warranty card
       if (status === 'delivered' && payload.warrantyUntil) {
-        const startDate = new Date(payload.deliveredAt || new Date().toISOString().slice(0, 10));
-        const expiryDate = new Date(payload.warrantyUntil);
+        let maxPartWarranty = 0;
+        if (payload.usedParts && payload.usedParts.length > 0) {
+          payload.usedParts.forEach(pt => {
+            const prod = products.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
+            const w = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+            if (w > maxPartWarranty) maxPartWarranty = w;
+          });
+        }
+
+        const startDateStr = payload.deliveredAt || new Date().toISOString().slice(0, 10);
+        let finalExpiryDateStr = payload.warrantyUntil;
+
+        if (maxPartWarranty > 0) {
+          const computedExpiryWithParts = computeExpiryDate(startDateStr, maxPartWarranty);
+          if (new Date(computedExpiryWithParts) > new Date(payload.warrantyUntil)) {
+            finalExpiryDateStr = computedExpiryWithParts;
+            payload.warrantyUntil = computedExpiryWithParts;
+          }
+        }
+
+        const startDate = new Date(startDateStr);
+        const expiryDate = new Date(finalExpiryDateStr);
         const diffDays = Math.round((expiryDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
-        let computedMonths = 3;
-        if (diffDays <= 4) computedMonths = 0.1; // 3 days
-        else if (diffDays <= 8) computedMonths = 0.2; // 7 days
+        let computedMonths = maxPartWarranty || 3;
+        if (diffDays <= 4) computedMonths = 0.1;
+        else if (diffDays <= 8) computedMonths = 0.2;
         else if (diffDays <= 35) computedMonths = 1;
         else if (diffDays <= 65) computedMonths = 2;
         else if (diffDays <= 100) computedMonths = 3;
@@ -903,23 +1003,47 @@ export default function App() {
         else if (diffDays <= 1120) computedMonths = 36;
         else computedMonths = Math.max(1, Math.round(diffDays / 30));
 
+        if (maxPartWarranty > 0 && computedMonths < maxPartWarranty) {
+          computedMonths = maxPartWarranty;
+        }
+
         const repairWarrantyCard: WarrantyCard = {
-          id: `warr_repaired_${Date.now()}`,
+          id: `warr_repaired_${rep.id}`,
           serialNumber: rep.deviceSerial || `REP-${rep.ticketNumber}`,
           productName: `Dịch vụ sửa máy: ${rep.deviceName}`,
           customerName: rep.customerName,
           customerPhone: rep.customerPhone,
-          purchaseDate: payload.deliveredAt || new Date().toISOString().slice(0, 10),
+          purchaseDate: startDateStr,
           warrantyMonths: computedMonths,
-          expiryDate: payload.warrantyUntil,
+          expiryDate: finalExpiryDateStr,
           status: 'active',
           notes: `Bảo hành dịch vụ sửa chữa số ${rep.ticketNumber}. Giải pháp: ${payload.solution || 'Thay thế linh kiện'}`,
           linkedRepairId: rep.id
         };
         
-        // Also append this repair service custom warranty card to the master registry!
+        // Upsert into warranties list
         setTimeout(() => {
-          saveWarranties([...warranties, repairWarrantyCard]);
+          setWarranties(prevWarr => {
+            const existingIdx = prevWarr.findIndex(w => 
+              w.linkedRepairId === rep.id || 
+              (rep.deviceSerial && w.serialNumber === rep.deviceSerial) ||
+              w.serialNumber === `REP-${rep.ticketNumber}` ||
+              (w.notes && w.notes.includes(rep.ticketNumber))
+            );
+            let nextWarrs: WarrantyCard[];
+            if (existingIdx >= 0) {
+              nextWarrs = [...prevWarr];
+              nextWarrs[existingIdx] = {
+                ...nextWarrs[existingIdx],
+                ...repairWarrantyCard,
+                id: nextWarrs[existingIdx].id
+              };
+            } else {
+              nextWarrs = [repairWarrantyCard, ...prevWarr];
+            }
+            saveWarranties(nextWarrs);
+            return nextWarrs;
+          });
         }, 10);
       }
 

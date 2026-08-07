@@ -122,10 +122,17 @@ export default function RepairManager({
 
     partsList.forEach(part => {
       const prod = products.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
-      if (prod && typeof prod.warrantyMonths === 'number') {
+      let warr = part.warrantyMonths;
+      if (warr === undefined && prod && typeof prod.warrantyMonths === 'number') {
+        warr = prod.warrantyMonths;
+      }
+      if (warr === undefined) {
+        warr = 12; // default standard for hardware replacement parts
+      }
+      if (typeof warr === 'number') {
         hasValidPart = true;
-        if (prod.warrantyMonths > maxWarr) {
-          maxWarr = prod.warrantyMonths;
+        if (warr > maxWarr) {
+          maxWarr = warr;
         }
       }
     });
@@ -144,11 +151,8 @@ export default function RepairManager({
     const details: string[] = [];
     partsList.forEach(part => {
       const prod = products.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
-      if (prod && typeof prod.warrantyMonths === 'number') {
-        details.push(`${part.name} (${formatWarrantyText(prod.warrantyMonths)})`);
-      } else {
-        details.push(part.name);
-      }
+      const warr = part.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+      details.push(`${part.name} (${formatWarrantyText(warr)})`);
     });
 
     return details.join(', ');
@@ -471,8 +475,13 @@ export default function RepairManager({
         return;
       }
       
+      let effectiveWarrantyMonths = repairWarrantyMonths;
+      if (suggestedWarrantyFromParts !== null && suggestedWarrantyFromParts > effectiveWarrantyMonths) {
+        effectiveWarrantyMonths = suggestedWarrantyFromParts;
+      }
+
       // Hands over to client, calculate service warranty
-      const expiryDateStr = computeExpiryDate(deliveredAtInput || new Date().toISOString().slice(0, 10), repairWarrantyMonths);
+      const expiryDateStr = computeExpiryDate(deliveredAtInput || new Date().toISOString().slice(0, 10), effectiveWarrantyMonths);
       
       onUpdateRepairStatus(activeTicket.id, 'delivered', {
         deliveredAt: deliveredAtInput,
