@@ -211,6 +211,8 @@ export interface RepairTicket {
   processedBy?: string;
   linkedInvoiceId?: string; // ADDED: Link to original invoice
   usedParts?: { productId: string, name: string, quantity: number, price: number, warrantyMonths?: number, imei?: string }[]; // ADDED: Parts used in repair
+  debtAmount?: number;
+  debtDueDate?: string;
 }
 
 export interface WarrantyCard {

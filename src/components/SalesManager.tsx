@@ -1134,7 +1134,14 @@ export default function SalesManager({
                 {filteredInvoices.map(inv => (
                   <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="py-3 font-mono font-bold text-indigo-700">
-                      <div>{inv.invoiceNumber}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{inv.invoiceNumber}</span>
+                        {(inv.invoiceNumber.startsWith('HD-REP-') || inv.id.startsWith('inv_repair_')) && (
+                          <span className="text-[10px] bg-amber-100 text-amber-800 font-sans font-bold px-1.5 py-0.5 rounded-md border border-amber-200">
+                            🔧 Sửa Chữa & LK
+                          </span>
+                        )}
+                      </div>
                       {inv.processedBy && (
                         <div className="text-[10px] text-slate-500 font-sans font-medium mt-1 bg-slate-100 rounded-md px-2 py-0.5 w-fit">
                           👤 {inv.processedBy}

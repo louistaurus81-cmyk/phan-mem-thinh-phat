@@ -204,6 +204,8 @@ export default function RepairManager({
   const [editDeliveredAt, setEditDeliveredAt] = useState('');
   const [editWarrantyUntil, setEditWarrantyUntil] = useState('');
   const [editNote, setEditNote] = useState('');
+  const [editUsedParts, setEditUsedParts] = useState<{ productId: string; name: string; price: number; quantity: number; imei?: string; warrantyMonths?: number }[]>([]);
+  const [editPartSearch, setEditPartSearch] = useState('');
 
   // Print Repair Invoice Modal state
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -226,7 +228,80 @@ export default function RepairManager({
     setEditDeliveredAt(ticket.deliveredAt ? ticket.deliveredAt.slice(0, 10) : '');
     setEditWarrantyUntil(ticket.warrantyUntil ? ticket.warrantyUntil.slice(0, 10) : '');
     setEditNote(ticket.note || '');
+    setEditUsedParts(ticket.usedParts ? ticket.usedParts.map(p => ({ ...p })) : []);
     setShowEditModal(true);
+  };
+
+  const handleAddEditPart = (p: Product) => {
+    const warr = typeof p.warrantyMonths === 'number' ? p.warrantyMonths : 12;
+    const existingIdx = editUsedParts.findIndex(item => item.productId === p.id && !item.imei);
+    if (existingIdx > -1) {
+      const updated = [...editUsedParts];
+      updated[existingIdx].quantity += 1;
+      setEditUsedParts(updated);
+    } else {
+      setEditUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1, warrantyMonths: warr }]);
+    }
+    setEditActualCost(prev => prev + p.price);
+  };
+
+  const handleRemoveEditPart = (index: number) => {
+    const itemToRemove = editUsedParts[index];
+    setEditActualCost(prev => Math.max(0, prev - (itemToRemove.price * itemToRemove.quantity)));
+    setEditUsedParts(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateEditPartQty = (index: number, delta: number) => {
+    const item = editUsedParts[index];
+    const newQty = item.quantity + delta;
+    if (newQty <= 0) {
+      handleRemoveEditPart(index);
+      return;
+    }
+    const updated = [...editUsedParts];
+    updated[index].quantity = newQty;
+    setEditUsedParts(updated);
+    setEditActualCost(prev => Math.max(0, prev + (delta * item.price)));
+  };
+
+  const handleUpdateEditPartPrice = (index: number, price: number) => {
+    const updated = [...editUsedParts];
+    const oldTotal = updated[index].price * updated[index].quantity;
+    updated[index].price = price;
+    const newTotal = price * updated[index].quantity;
+    setEditUsedParts(updated);
+    setEditActualCost(prev => Math.max(0, prev - oldTotal + newTotal));
+  };
+
+  const handleIncreasePartQty = (index: number) => {
+    const item = usedParts[index];
+    const prod = products.find(p => p.id === item.productId);
+    if (!prod) return;
+    if (prod.stock <= 0) {
+      alert(`Linh kiện ${prod.name} đã hết hàng trong kho!`);
+      return;
+    }
+    const updated = [...usedParts];
+    updated[index].quantity += 1;
+    setUsedParts(updated);
+    setActualCost(prev => prev + item.price);
+    onUpdateProductStock(item.productId, prod.stock - 1);
+  };
+
+  const handleDecreasePartQty = (index: number) => {
+    const item = usedParts[index];
+    if (item.quantity <= 1) {
+      handleRemovePart(index);
+      return;
+    }
+    const prod = products.find(p => p.id === item.productId);
+    const updated = [...usedParts];
+    updated[index].quantity -= 1;
+    setUsedParts(updated);
+    setActualCost(prev => Math.max(0, prev - item.price));
+    if (prod) {
+      onUpdateProductStock(item.productId, prod.stock + 1);
+    }
   };
 
   const handleSaveEditTicket = (e: React.FormEvent) => {
@@ -254,6 +329,7 @@ export default function RepairManager({
       deliveredAt: editDeliveredAt || undefined,
       warrantyUntil: editWarrantyUntil || undefined,
       note: editNote.trim() || undefined,
+      usedParts: editUsedParts,
       updatedAt: new Date().toISOString()
     };
 
@@ -265,7 +341,8 @@ export default function RepairManager({
         actualCost: updated.actualCost,
         warrantyUntil: updated.warrantyUntil,
         deliveredAt: updated.deliveredAt,
-        note: updated.note
+        note: updated.note,
+        usedParts: updated.usedParts
       });
     }
 
@@ -915,22 +992,47 @@ export default function RepairManager({
                               )}
                             </div>
 
-                            {/* Selected parts with remove buttons */}
+                            {/* Selected parts with quantity adjustments & warranty badges */}
                             {usedParts.length > 0 && (
                               <div className="bg-slate-100/80 rounded-lg p-2.5 border border-slate-200/50 space-y-1">
-                                <p className="text-[10px] uppercase font-bold text-slate-505">Đã chọn ({usedParts.length}):</p>
-                                <div className="divide-y divide-slate-200/50 max-h-40 overflow-y-auto">
+                                <p className="text-[10px] uppercase font-bold text-slate-500">Đã chọn linh kiện ({usedParts.length}):</p>
+                                <div className="divide-y divide-slate-200/50 max-h-48 overflow-y-auto">
                                   {usedParts.map((part, idx) => (
-                                    <div key={idx} className="flex justify-between items-center py-1.5 text-[11px] font-semibold text-slate-800">
-                                      <div className="truncate pr-1">
-                                        <div className="truncate">{part.name}</div>
-                                        <div className="text-[9px] text-indigo-600 font-mono font-bold">SL: {part.quantity} × {formatVND(part.price)}</div>
+                                    <div key={idx} className="flex justify-between items-center py-1.5 text-[11px] font-semibold text-slate-800 gap-2">
+                                      <div className="truncate pr-1 flex-1">
+                                        <div className="truncate font-bold">{part.name}</div>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                          <span className="text-[9px] text-indigo-600 font-mono font-bold">
+                                            {formatVND(part.price)}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded-sm border border-emerald-100">
+                                            🛡️ BH: {part.warrantyMonths || 12}T
+                                          </span>
+                                        </div>
                                       </div>
+
+                                      {/* Quantity controls */}
+                                      <div className="flex items-center gap-1 shrink-0 bg-white p-0.5 rounded-md border border-slate-200">
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleDecreasePartQty(idx)}
+                                          className="w-4 h-4 rounded-sm font-bold text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer text-[10px]"
+                                          title="Giảm 1"
+                                        >-</button>
+                                        <span className="w-5 text-center font-bold text-slate-800 text-[10px]">{part.quantity}</span>
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleIncreasePartQty(idx)}
+                                          className="w-4 h-4 rounded-sm font-bold text-slate-700 hover:bg-slate-100 flex items-center justify-center cursor-pointer text-[10px]"
+                                          title="Tăng 1"
+                                        >+</button>
+                                      </div>
+
                                       <button 
                                         type="button" 
                                         onClick={() => handleRemovePart(idx)}
                                         className="p-1 text-rose-500 hover:bg-rose-50 rounded-sm transition shrink-0 cursor-pointer"
-                                        title="Xóa"
+                                        title="Xóa linh kiện"
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
                                       </button>
@@ -1555,6 +1657,110 @@ export default function RepairManager({
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* Section for Replacement Parts in Edit Ticket Modal */}
+                <div className="bg-slate-50 p-3.5 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-bold text-slate-800 flex items-center gap-1.5 text-sm">
+                      <Wrench className="w-4 h-4 text-indigo-600" /> Linh Kiện Thay Thế / Xuất Kho ({editUsedParts.length})
+                    </p>
+                    <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                      Đồng bộ Kho & Hoá Đơn Bán
+                    </span>
+                  </div>
+
+                  {/* Search and Add Component from Warehouse */}
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder="Tìm linh kiện kho để thêm (Tên, SKU)..."
+                      value={editPartSearch}
+                      onChange={e => setEditPartSearch(e.target.value)}
+                      className="w-full bg-white border border-slate-200 px-3 py-2 rounded-lg text-xs font-medium text-slate-800 focus:outline-hidden focus:border-indigo-500"
+                    />
+                    {editPartSearch.trim().length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto z-20 p-1 divide-y divide-slate-100">
+                        {products
+                          .filter(p => p.name.toLowerCase().includes(editPartSearch.toLowerCase()) || (p.sku && p.sku.toLowerCase().includes(editPartSearch.toLowerCase())))
+                          .slice(0, 8)
+                          .map(p => (
+                            <div 
+                              key={p.id}
+                              onClick={() => {
+                                handleAddEditPart(p);
+                                setEditPartSearch('');
+                              }}
+                              className="p-2 hover:bg-indigo-50 cursor-pointer rounded-lg text-xs flex justify-between items-center transition"
+                            >
+                              <div>
+                                <div className="font-bold text-slate-800">{p.name}</div>
+                                <div className="text-[10px] text-slate-500 font-mono">Tồn kho: {p.stock} chiếc | BH: {p.warrantyMonths || 12}T</div>
+                              </div>
+                              <span className="font-bold text-indigo-600">{formatVND(p.price)}</span>
+                            </div>
+                          ))}
+                        {products.filter(p => p.name.toLowerCase().includes(editPartSearch.toLowerCase()) || (p.sku && p.sku.toLowerCase().includes(editPartSearch.toLowerCase()))).length === 0 && (
+                          <div className="p-3 text-xs text-slate-400 text-center">Không tìm thấy linh kiện phù hợp</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* List of Edit Used Parts */}
+                  {editUsedParts.length > 0 ? (
+                    <div className="bg-white border border-slate-200 rounded-lg p-2 divide-y divide-slate-100 max-h-52 overflow-y-auto">
+                      {editUsedParts.map((pt, idx) => (
+                        <div key={idx} className="py-2 flex items-center justify-between text-xs gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-slate-800 truncate">{pt.name}</div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-sm border border-emerald-100">
+                                🛡️ BH: {pt.warrantyMonths || 12} Tháng
+                              </span>
+                              <input 
+                                type="number"
+                                min={0}
+                                step={1000}
+                                value={pt.price}
+                                onChange={e => handleUpdateEditPartPrice(idx, Number(e.target.value))}
+                                className="w-24 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-slate-700"
+                                title="Sửa đơn giá linh kiện"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Quantity control */}
+                          <div className="flex items-center gap-1 shrink-0 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                            <button 
+                              type="button" 
+                              onClick={() => handleUpdateEditPartQty(idx, -1)}
+                              className="w-5 h-5 bg-white rounded-md font-bold text-slate-700 hover:bg-slate-200 flex items-center justify-center cursor-pointer text-xs"
+                            >-</button>
+                            <span className="w-6 text-center font-bold text-slate-800 text-xs">{pt.quantity}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => handleUpdateEditPartQty(idx, 1)}
+                              className="w-5 h-5 bg-white rounded-md font-bold text-slate-700 hover:bg-slate-200 flex items-center justify-center cursor-pointer text-xs"
+                            >+</button>
+                          </div>
+
+                          <button 
+                            type="button"
+                            onClick={() => handleRemoveEditPart(idx)}
+                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-md transition cursor-pointer"
+                            title="Xóa linh kiện"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-2 text-xs text-slate-400 italic bg-white border border-dashed border-slate-200 rounded-lg">
+                      Chưa chọn linh kiện thay thế nào cho phiếu sửa chữa này
+                    </div>
+                  )}
                 </div>
 
                 {/* Personnel & Status Section */}

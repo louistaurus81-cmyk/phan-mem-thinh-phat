@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Product, 
   SalesInvoice, 
+  InvoiceItem,
   RepairTicket, 
   WarrantyCard, 
   Customer,
@@ -292,9 +293,61 @@ export default function App() {
     syncWithServer('warranties', newWarrs);
   };
 
+  const createSalesInvoiceFromRepair = (rep: RepairTicket, productsList: Product[]): SalesInvoice => {
+    const invoiceItems: InvoiceItem[] = [];
+
+    if (rep.usedParts && rep.usedParts.length > 0) {
+      rep.usedParts.forEach(part => {
+        const prod = productsList.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
+        const warrMonths = part.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+        invoiceItems.push({
+          productId: part.productId,
+          productName: `Linh kiện: ${part.name}`,
+          quantity: part.quantity,
+          price: part.price,
+          warrantyMonths: warrMonths,
+          imeis: part.imei ? [part.imei] : undefined
+        });
+      });
+    }
+
+    const partsTotal = rep.usedParts ? rep.usedParts.reduce((sum, p) => sum + p.price * p.quantity, 0) : 0;
+    const totalCost = rep.actualCost || rep.estimatedCost || 0;
+    const laborFee = Math.max(0, totalCost - partsTotal);
+
+    if (laborFee > 0 || invoiceItems.length === 0) {
+      invoiceItems.push({
+        productId: `repair_labor_${rep.id}`,
+        productName: `Chi phí kỹ thuật & sửa chữa: ${rep.deviceName}`,
+        quantity: 1,
+        price: laborFee > 0 ? laborFee : totalCost,
+        warrantyMonths: rep.warrantyUntil ? 3 : 0
+      });
+    }
+
+    const cleanTicketNum = rep.ticketNumber.replace(/^REP-/, '');
+    const invoiceNum = `HD-REP-${cleanTicketNum}`;
+
+    return {
+      id: `inv_repair_${rep.id}`,
+      invoiceNumber: invoiceNum,
+      customerId: rep.customerId,
+      customerName: rep.customerName,
+      customerPhone: rep.customerPhone,
+      items: invoiceItems,
+      totalAmount: totalCost,
+      paymentMethod: 'Tiền mặt',
+      createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
+      note: `Xuất kho linh kiện & sửa chữa #${rep.ticketNumber} (${rep.deviceName}). Giải pháp: ${rep.solution || 'Thay thế linh kiện'}`,
+      processedBy: rep.processedBy || rep.technician || 'Kỹ thuật viên',
+      debtAmount: rep.debtAmount,
+      debtDueDate: rep.debtDueDate
+    };
+  };
+
   // Auto-correct any PC build or Repair service warranty card duration if invoice items / replacement parts specify different warranty months & sync real IMEIs
   useEffect(() => {
-    if (dbLoading || warranties.length === 0) return;
+    if (dbLoading) return;
 
     let hasWarrChange = false;
     let hasRepairChange = false;
@@ -330,94 +383,135 @@ export default function App() {
     }
 
     // 2. Sync warranty cards
-    const syncedWarrs = warranties.map(w => {
-      // First check if it's a repair service warranty card
-      const matchedRepair = repairs.find(r => {
-        if (w.linkedRepairId && r.id === w.linkedRepairId) return true;
-        if (r.deviceSerial && w.serialNumber === r.deviceSerial) return true;
-        if (r.ticketNumber) {
-          const cleanTicket = r.ticketNumber.replace(/^REP-/, '');
-          if (w.serialNumber.includes(cleanTicket) || w.serialNumber.includes(r.ticketNumber)) return true;
-          if (w.notes && (w.notes.includes(cleanTicket) || w.notes.includes(r.ticketNumber))) return true;
-        }
-        if (w.customerName === r.customerName && (w.customerPhone === r.customerPhone || !w.customerPhone) && 
-           (w.productName.includes(r.deviceName) || w.productName.includes('Dịch vụ'))) return true;
-        return false;
-      });
-
-      if (matchedRepair) {
-        let maxPartW = 0;
-        if (matchedRepair.usedParts && matchedRepair.usedParts.length > 0) {
-          matchedRepair.usedParts.forEach(pt => {
-            const prod = products.find(p => 
-              p.id === pt.productId || 
-              p.sku === pt.productId || 
-              p.name === pt.name ||
-              pt.name.startsWith(p.name) ||
-              p.name.startsWith(pt.name.split(' (S/N:')[0])
-            );
-            const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
-            if (ptW > maxPartW) maxPartW = ptW;
-          });
-        }
-
-        if (maxPartW > 0) {
-          const purchaseDate = w.purchaseDate || matchedRepair.deliveredAt || matchedRepair.createdAt.slice(0, 10);
-          const correctPartExpiry = computeExpiryDate(purchaseDate, maxPartW);
-
-          if (w.warrantyMonths !== maxPartW || w.expiryDate !== correctPartExpiry || w.linkedRepairId !== matchedRepair.id) {
-            hasWarrChange = true;
-            return {
-              ...w,
-              warrantyMonths: maxPartW,
-              expiryDate: correctPartExpiry,
-              linkedRepairId: matchedRepair.id
-            };
+    if (warranties.length > 0) {
+      const syncedWarrs = warranties.map(w => {
+        // First check if it's a repair service warranty card
+        const matchedRepair = repairs.find(r => {
+          if (w.linkedRepairId && r.id === w.linkedRepairId) return true;
+          if (r.deviceSerial && w.serialNumber === r.deviceSerial) return true;
+          if (r.ticketNumber) {
+            const cleanTicket = r.ticketNumber.replace(/^REP-/, '');
+            if (w.serialNumber.includes(cleanTicket) || w.serialNumber.includes(r.ticketNumber)) return true;
+            if (w.notes && (w.notes.includes(cleanTicket) || w.notes.includes(r.ticketNumber))) return true;
           }
-        }
-      }
+          if (w.customerName === r.customerName && (w.customerPhone === r.customerPhone || !w.customerPhone) && 
+             (w.productName.includes(r.deviceName) || w.productName.includes('Dịch vụ'))) return true;
+          return false;
+        });
 
-      // Next check PC builds and sales invoices
-      const matchedInv = invoices.find(i => 
-        (w.linkedInvoiceId && i.id === w.linkedInvoiceId) || 
-        (w.serialNumber && w.serialNumber === i.invoiceNumber) ||
-        (i.invoiceNumber.startsWith('PC-') && w.productName.includes(i.invoiceNumber))
-      );
-
-      if (matchedInv && matchedInv.items && matchedInv.items.length > 0) {
-        if (matchedInv.invoiceNumber.startsWith('PC-') || w.productName.startsWith('Bộ Cấu Hình PC')) {
-          const correctMaxWarr = matchedInv.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0);
-          const purchaseDate = w.purchaseDate || matchedInv.createdAt.slice(0, 10);
-          const correctExpiryDate = computeExpiryDate(purchaseDate, correctMaxWarr);
-
-          if (w.warrantyMonths !== correctMaxWarr || w.expiryDate !== correctExpiryDate) {
-            hasWarrChange = true;
-            return {
-              ...w,
-              warrantyMonths: correctMaxWarr,
-              expiryDate: correctExpiryDate
-            };
+        if (matchedRepair) {
+          let maxPartW = 0;
+          if (matchedRepair.usedParts && matchedRepair.usedParts.length > 0) {
+            matchedRepair.usedParts.forEach(pt => {
+              const prod = products.find(p => 
+                p.id === pt.productId || 
+                p.sku === pt.productId || 
+                p.name === pt.name ||
+                pt.name.startsWith(p.name) ||
+                p.name.startsWith(pt.name.split(' (S/N:')[0])
+              );
+              const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+              if (ptW > maxPartW) maxPartW = ptW;
+            });
           }
-        } else {
-          // If a warranty card currently has a fake generated serial "IMEI-14digits" but the invoice item has real IMEIs, update serialNumber
-          const matchedItem = matchedInv.items.find(it => it.productName === w.productName || it.productId === w.productName);
-          if (matchedItem && matchedItem.imeis && matchedItem.imeis.length > 0) {
-            const realImeisStr = matchedItem.imeis.join(', ');
-            if (w.serialNumber !== realImeisStr && w.serialNumber.startsWith('IMEI-') && !matchedItem.imeis.includes(w.serialNumber)) {
+
+          if (maxPartW > 0) {
+            const purchaseDate = w.purchaseDate || matchedRepair.deliveredAt || matchedRepair.createdAt.slice(0, 10);
+            const correctPartExpiry = computeExpiryDate(purchaseDate, maxPartW);
+
+            if (w.warrantyMonths !== maxPartW || w.expiryDate !== correctPartExpiry || w.linkedRepairId !== matchedRepair.id) {
               hasWarrChange = true;
               return {
                 ...w,
-                serialNumber: realImeisStr
+                warrantyMonths: maxPartW,
+                expiryDate: correctPartExpiry,
+                linkedRepairId: matchedRepair.id
               };
             }
           }
         }
+
+        // Next check PC builds and sales invoices
+        const matchedInv = invoices.find(i => 
+          (w.linkedInvoiceId && i.id === w.linkedInvoiceId) || 
+          (w.serialNumber && w.serialNumber === i.invoiceNumber) ||
+          (i.invoiceNumber.startsWith('PC-') && w.productName.includes(i.invoiceNumber))
+        );
+
+        if (matchedInv && matchedInv.items && matchedInv.items.length > 0) {
+          if (matchedInv.invoiceNumber.startsWith('PC-') || w.productName.startsWith('Bộ Cấu Hình PC')) {
+            const correctMaxWarr = matchedInv.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0);
+            const purchaseDate = w.purchaseDate || matchedInv.createdAt.slice(0, 10);
+            const correctExpiryDate = computeExpiryDate(purchaseDate, correctMaxWarr);
+
+            if (w.warrantyMonths !== correctMaxWarr || w.expiryDate !== correctExpiryDate) {
+              hasWarrChange = true;
+              return {
+                ...w,
+                warrantyMonths: correctMaxWarr,
+                expiryDate: correctExpiryDate
+              };
+            }
+          } else {
+            // If a warranty card currently has a fake generated serial "IMEI-14digits" but the invoice item has real IMEIs, update serialNumber
+            const matchedItem = matchedInv.items.find(it => it.productName === w.productName || it.productId === w.productName);
+            if (matchedItem && matchedItem.imeis && matchedItem.imeis.length > 0) {
+              const realImeisStr = matchedItem.imeis.join(', ');
+              if (w.serialNumber !== realImeisStr && w.serialNumber.startsWith('IMEI-') && !matchedItem.imeis.includes(w.serialNumber)) {
+                hasWarrChange = true;
+                return {
+                  ...w,
+                  serialNumber: realImeisStr
+                };
+              }
+            }
+          }
+        }
+        return w;
+      });
+
+      if (hasWarrChange) {
+        saveWarranties(syncedWarrs);
       }
-      return w;
+    }
+
+    // 3. Auto-sync repair tickets into sales invoices (Hoá đơn đã bán)
+    let hasInvoiceSync = false;
+    let nextInvoices = [...invoices];
+
+    repairs.forEach(rep => {
+      if ((rep.usedParts && rep.usedParts.length > 0) || rep.status === 'delivered' || rep.status === 'completed' || rep.actualCost > 0) {
+        const repairInv = createSalesInvoiceFromRepair(rep, products);
+        const existingIdx = nextInvoices.findIndex(inv => 
+          inv.id === repairInv.id || 
+          inv.invoiceNumber === repairInv.invoiceNumber ||
+          (inv.note && inv.note.includes(rep.ticketNumber))
+        );
+
+        if (existingIdx === -1) {
+          nextInvoices.unshift(repairInv);
+          hasInvoiceSync = true;
+        } else {
+          const curr = nextInvoices[existingIdx];
+          if (
+            curr.totalAmount !== repairInv.totalAmount ||
+            curr.items.length !== repairInv.items.length ||
+            curr.customerName !== repairInv.customerName ||
+            curr.customerPhone !== repairInv.customerPhone
+          ) {
+            nextInvoices[existingIdx] = {
+              ...curr,
+              ...repairInv,
+              id: curr.id
+            };
+            hasInvoiceSync = true;
+          }
+        }
+      }
     });
 
-    if (hasWarrChange) {
-      saveWarranties(syncedWarrs);
+    if (hasInvoiceSync) {
+      saveInvoices(nextInvoices);
     }
   }, [dbLoading, invoices, warranties, repairs, products]);
 
