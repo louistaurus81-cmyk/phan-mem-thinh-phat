@@ -299,7 +299,7 @@ export default function App() {
     if (rep.usedParts && rep.usedParts.length > 0) {
       rep.usedParts.forEach(part => {
         const prod = productsList.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
-        const warrMonths = part.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+        const warrMonths = part.warrantyMonths ?? prod?.warrantyMonths ?? 0;
         invoiceItems.push({
           productId: part.productId,
           productName: `Linh kiện: ${part.name}`,
@@ -378,7 +378,7 @@ export default function App() {
         let maxPartW = 0;
         rep.usedParts.forEach(pt => {
           const prod = products.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
-          const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+          const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 0;
           if (ptW > maxPartW) maxPartW = ptW;
         });
 
@@ -428,7 +428,7 @@ export default function App() {
                 pt.name.startsWith(p.name) ||
                 p.name.startsWith(pt.name.split(' (S/N:')[0])
               );
-              const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+              const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 0;
               if (ptW > maxPartW) maxPartW = ptW;
             });
           }
@@ -1134,7 +1134,7 @@ export default function App() {
         if (payload.usedParts && payload.usedParts.length > 0) {
           payload.usedParts.forEach(pt => {
             const prod = products.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
-            const w = pt.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+            const w = pt.warrantyMonths ?? prod?.warrantyMonths ?? 0;
             if (w > maxPartWarranty) maxPartWarranty = w;
           });
         }

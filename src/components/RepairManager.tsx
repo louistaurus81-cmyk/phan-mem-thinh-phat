@@ -127,7 +127,7 @@ export default function RepairManager({
         warr = prod.warrantyMonths;
       }
       if (warr === undefined) {
-        warr = 12; // default standard for hardware replacement parts
+        warr = 0;
       }
       if (typeof warr === 'number') {
         hasValidPart = true;
@@ -151,7 +151,7 @@ export default function RepairManager({
     const details: string[] = [];
     partsList.forEach(part => {
       const prod = products.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
-      const warr = part.warrantyMonths ?? prod?.warrantyMonths ?? 12;
+      const warr = part.warrantyMonths ?? prod?.warrantyMonths ?? 0;
       details.push(`${part.name} (${formatWarrantyText(warr)})`);
     });
 
@@ -259,32 +259,73 @@ export default function RepairManager({
     const deliveredStr = ticket.deliveredAt ? ticket.deliveredAt.slice(0, 10) : '';
     setEditCreatedAt(createdStr);
     setEditDeliveredAt(deliveredStr);
+
+    const parts = ticket.usedParts ? ticket.usedParts.map(p => {
+      const prod = products.find(m => m.id === p.productId || m.sku === p.productId || m.name === p.name);
+      return {
+        ...p,
+        warrantyMonths: p.warrantyMonths !== undefined ? p.warrantyMonths : (prod?.warrantyMonths ?? 0)
+      };
+    }) : [];
+    setEditUsedParts(parts);
+
     const baseDate = deliveredStr || createdStr || new Date().toISOString().slice(0, 10);
-    const initialExpiry = ticket.warrantyUntil ? ticket.warrantyUntil.slice(0, 10) : computeExpiryDate(baseDate, 3);
+    const maxPartW = parts.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0);
+    const initialExpiry = ticket.warrantyUntil ? ticket.warrantyUntil.slice(0, 10) : computeExpiryDate(baseDate, maxPartW || 3);
     setEditWarrantyUntil(initialExpiry);
     setEditWarrantyMonthsInput(calculateMonthsFromDates(baseDate, initialExpiry));
     setEditNote(ticket.note || '');
-    setEditUsedParts(ticket.usedParts ? ticket.usedParts.map(p => ({ ...p })) : []);
     setShowEditModal(true);
   };
 
+  const handleUpdateEditPartWarranty = (index: number, months: number) => {
+    const updated = [...editUsedParts];
+    updated[index].warrantyMonths = Math.max(0, months);
+    setEditUsedParts(updated);
+
+    const maxW = updated.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0);
+    const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
+    setEditWarrantyMonthsInput(maxW);
+    setEditWarrantyUntil(computeExpiryDate(baseDate, maxW));
+  };
+
+  const handleUpdatePartWarranty = (index: number, months: number) => {
+    const updated = [...usedParts];
+    updated[index].warrantyMonths = Math.max(0, months);
+    setUsedParts(updated);
+
+    const maxW = updated.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0);
+    setRepairWarrantyMonths(maxW);
+  };
+
   const handleAddEditPart = (p: Product) => {
-    const warr = typeof p.warrantyMonths === 'number' ? p.warrantyMonths : 12;
+    const warr = p.warrantyMonths !== undefined ? p.warrantyMonths : 0;
     const existingIdx = editUsedParts.findIndex(item => item.productId === p.id && !item.imei);
+    let nextParts = [...editUsedParts];
     if (existingIdx > -1) {
-      const updated = [...editUsedParts];
-      updated[existingIdx].quantity += 1;
-      setEditUsedParts(updated);
+      nextParts[existingIdx].quantity += 1;
     } else {
-      setEditUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1, warrantyMonths: warr }]);
+      nextParts.push({ productId: p.id, name: p.name, price: p.price, quantity: 1, warrantyMonths: warr });
     }
+    setEditUsedParts(nextParts);
     setEditActualCost(prev => prev + p.price);
+
+    const maxW = nextParts.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0);
+    const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
+    setEditWarrantyMonthsInput(maxW);
+    setEditWarrantyUntil(computeExpiryDate(baseDate, maxW));
   };
 
   const handleRemoveEditPart = (index: number) => {
     const itemToRemove = editUsedParts[index];
+    const nextParts = editUsedParts.filter((_, i) => i !== index);
     setEditActualCost(prev => Math.max(0, prev - (itemToRemove.price * itemToRemove.quantity)));
-    setEditUsedParts(prev => prev.filter((_, i) => i !== index));
+    setEditUsedParts(nextParts);
+
+    const maxW = nextParts.length > 0 ? nextParts.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0) : 0;
+    const baseDate = editDeliveredAt || editCreatedAt || new Date().toISOString().slice(0, 10);
+    setEditWarrantyMonthsInput(maxW);
+    setEditWarrantyUntil(computeExpiryDate(baseDate, maxW));
   };
 
   const handleUpdateEditPartQty = (index: number, delta: number) => {
@@ -396,10 +437,11 @@ export default function RepairManager({
 
   // Handle addition of replacement component & auto calculate cost
   const handleAddPart = (p: Product, imei?: string) => {
-    const warrMonths = typeof p.warrantyMonths === 'number' ? p.warrantyMonths : 12;
+    const warrMonths = p.warrantyMonths !== undefined ? p.warrantyMonths : 0;
+    let nextParts = [...usedParts];
     if (imei) {
       // For products with IMEI, we always add them as separate line items to keep track of individual IMEIs
-      setUsedParts(prev => [...prev, { productId: p.id, name: `${p.name} (S/N: ${imei})`, price: p.price, quantity: 1, imei, warrantyMonths: warrMonths }]);
+      nextParts.push({ productId: p.id, name: `${p.name} (S/N: ${imei})`, price: p.price, quantity: 1, imei, warrantyMonths: warrMonths });
       
       // Update global IMEI list status to sold
       if (onUpdateImeis) {
@@ -414,18 +456,21 @@ export default function RepairManager({
     } else {
       const existingIndex = usedParts.findIndex(item => item.productId === p.id && !item.imei);
       if (existingIndex > -1) {
-        const updated = [...usedParts];
-        updated[existingIndex].quantity += 1;
-        setUsedParts(updated);
+        nextParts[existingIndex].quantity += 1;
       } else {
-        setUsedParts(prev => [...prev, { productId: p.id, name: p.name, price: p.price, quantity: 1, warrantyMonths: warrMonths }]);
+        nextParts.push({ productId: p.id, name: p.name, price: p.price, quantity: 1, warrantyMonths: warrMonths });
       }
     }
+    setUsedParts(nextParts);
 
     // Increment the actual repair bill by the product price automatically!
     setActualCost(prev => prev + p.price);
     // Deduct stock for inventory integrity
     onUpdateProductStock(p.id, p.stock - 1);
+
+    // Auto update repair service warranty to max part warranty
+    const maxW = nextParts.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0);
+    setRepairWarrantyMonths(maxW);
   };
 
   // Handle deletion of replacement component & restore stock
@@ -453,7 +498,12 @@ export default function RepairManager({
     setActualCost(prev => Math.max(0, prev - (itemToRemove.price * itemToRemove.quantity)));
     
     // Remove from selection array safely
-    setUsedParts(prev => prev.filter((_, i) => i !== index));
+    const nextParts = usedParts.filter((_, i) => i !== index);
+    setUsedParts(nextParts);
+
+    // Auto update repair service warranty to max part warranty
+    const maxW = nextParts.length > 0 ? nextParts.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0) : 0;
+    setRepairWarrantyMonths(maxW);
   };
 
   // Serial lookup to check if product is currently under warranty
@@ -1032,15 +1082,24 @@ export default function RepairManager({
                                 <div className="divide-y divide-slate-200/50 max-h-48 overflow-y-auto">
                                   {usedParts.map((part, idx) => (
                                     <div key={idx} className="flex justify-between items-center py-1.5 text-[11px] font-semibold text-slate-800 gap-2">
-                                      <div className="truncate pr-1 flex-1">
+                                      <div className="truncate pr-1 flex-1 min-w-0">
                                         <div className="truncate font-bold">{part.name}</div>
-                                        <div className="flex items-center gap-2 mt-0.5">
+                                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                           <span className="text-[9px] text-indigo-600 font-mono font-bold">
                                             {formatVND(part.price)}
                                           </span>
-                                          <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded-sm border border-emerald-100">
-                                            🛡️ BH: {part.warrantyMonths || 12}T
-                                          </span>
+                                          <div className="flex items-center gap-1 bg-white border border-slate-200 px-1 py-0.5 rounded-sm">
+                                            <span className="text-[9px] font-bold text-slate-500">🛡️ BH:</span>
+                                            <input 
+                                              type="number"
+                                              min={0}
+                                              value={part.warrantyMonths ?? 0}
+                                              onChange={e => handleUpdatePartWarranty(idx, Number(e.target.value))}
+                                              className="w-10 text-center font-bold text-emerald-700 bg-slate-50 border border-slate-200 rounded-xs text-[10px] focus:outline-hidden"
+                                              title="Chỉnh sửa số tháng bảo hành của linh kiện này thủ công"
+                                            />
+                                            <span className="text-[9px] font-bold text-slate-600">Tháng</span>
+                                          </div>
                                         </div>
                                       </div>
 
@@ -1728,7 +1787,7 @@ export default function RepairManager({
                             >
                               <div>
                                 <div className="font-bold text-slate-800">{p.name}</div>
-                                <div className="text-[10px] text-slate-500 font-mono">Tồn kho: {p.stock} chiếc | BH: {p.warrantyMonths || 12}T</div>
+                                <div className="text-[10px] text-slate-500 font-mono">Tồn kho: {p.stock} chiếc | BH: {p.warrantyMonths ?? 0}T</div>
                               </div>
                               <span className="font-bold text-indigo-600">{formatVND(p.price)}</span>
                             </div>
@@ -1747,19 +1806,32 @@ export default function RepairManager({
                         <div key={idx} className="py-2 flex items-center justify-between text-xs gap-2">
                           <div className="flex-1 min-w-0">
                             <div className="font-bold text-slate-800 truncate">{pt.name}</div>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-sm border border-emerald-100">
-                                🛡️ BH: {pt.warrantyMonths || 12} Tháng
-                              </span>
-                              <input 
-                                type="number"
-                                min={0}
-                                step={1000}
-                                value={pt.price}
-                                onChange={e => handleUpdateEditPartPrice(idx, Number(e.target.value))}
-                                className="w-24 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-slate-700"
-                                title="Sửa đơn giá linh kiện"
-                              />
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md">
+                                <span className="text-[10px] font-bold text-slate-600 shrink-0">🛡️ BH:</span>
+                                <input 
+                                  type="number"
+                                  min={0}
+                                  value={pt.warrantyMonths ?? 0}
+                                  onChange={e => handleUpdateEditPartWarranty(idx, Number(e.target.value))}
+                                  className="w-12 text-center font-bold text-emerald-700 bg-white border border-slate-200 rounded-sm text-[11px] focus:outline-hidden focus:border-indigo-500"
+                                  title="Sửa thời hạn bảo hành cho linh kiện này (Tháng)"
+                                />
+                                <span className="text-[10px] font-bold text-slate-600 shrink-0">Tháng</span>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500">Giá:</span>
+                                <input 
+                                  type="number"
+                                  min={0}
+                                  step={1000}
+                                  value={pt.price}
+                                  onChange={e => handleUpdateEditPartPrice(idx, Number(e.target.value))}
+                                  className="w-24 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-slate-700"
+                                  title="Sửa đơn giá linh kiện"
+                                />
+                              </div>
                             </div>
                           </div>
 
