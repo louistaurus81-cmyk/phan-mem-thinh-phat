@@ -348,6 +348,15 @@ export default function App() {
     const cleanTicketNum = rep.ticketNumber.replace(/^REP-/, '');
     const invoiceNum = `HD-REP-${cleanTicketNum}`;
 
+    const linkedDebt = debts.find(d => 
+      (d.invoiceId && (d.invoiceId === `inv_repair_${rep.id}` || d.invoiceId === rep.id)) ||
+      (d.invoiceNumber && (d.invoiceNumber === invoiceNum || d.invoiceNumber === rep.ticketNumber || d.invoiceNumber.includes(cleanTicketNum))) ||
+      (d.note && (d.note.includes(rep.ticketNumber) || d.note.includes(cleanTicketNum)))
+    );
+
+    const hasDebt = (rep.debtAmount && rep.debtAmount > 0) || (linkedDebt && linkedDebt.remainingAmount > 0) || !!linkedDebt;
+    const calcDebtAmount = rep.debtAmount || linkedDebt?.remainingAmount || linkedDebt?.amount;
+
     return {
       id: `inv_repair_${rep.id}`,
       invoiceNumber: invoiceNum,
@@ -356,12 +365,12 @@ export default function App() {
       customerPhone: rep.customerPhone,
       items: invoiceItems,
       totalAmount: totalCost,
-      paymentMethod: rep.debtAmount && rep.debtAmount > 0 ? 'Ghi nợ' : 'Tiền mặt',
+      paymentMethod: hasDebt ? 'Ghi nợ' : 'Tiền mặt',
       createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
-      note: `Xuất kho linh kiện & sửa chữa #${rep.ticketNumber} (${rep.deviceName}). Giải pháp: ${rep.solution || 'Thay thế linh kiện'}` + (rep.debtAmount && rep.debtAmount > 0 ? ` [Ghi nợ sửa chữa: ${rep.debtAmount}₫]` : ''),
+      note: `Xuất kho linh kiện & sửa chữa #${rep.ticketNumber} (${rep.deviceName}). Giải pháp: ${rep.solution || 'Thay thế linh kiện'}` + (hasDebt && calcDebtAmount ? ` [Ghi nợ sửa chữa: ${calcDebtAmount}₫]` : ''),
       processedBy: rep.processedBy || rep.technician || 'Kỹ thuật viên',
-      debtAmount: rep.debtAmount,
-      debtDueDate: rep.debtDueDate
+      debtAmount: hasDebt ? calcDebtAmount : undefined,
+      debtDueDate: rep.debtDueDate || linkedDebt?.dueDate
     };
   };
 
@@ -1300,6 +1309,8 @@ export default function App() {
         if (finalDetails.deliveredAt !== undefined) payload.deliveredAt = finalDetails.deliveredAt;
         if (finalDetails.note !== undefined) payload.note = finalDetails.note;
         if (finalDetails.usedParts !== undefined) payload.usedParts = finalDetails.usedParts;
+        if (finalDetails.debtAmount !== undefined) payload.debtAmount = finalDetails.debtAmount;
+        if (finalDetails.debtDueDate !== undefined) payload.debtDueDate = finalDetails.debtDueDate;
       }
 
       if (status === 'delivered' && !payload.deliveredAt) {
