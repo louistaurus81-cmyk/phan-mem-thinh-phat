@@ -162,6 +162,68 @@ export default function SalesManager({
   const [editingInvoice, setEditingInvoice] = useState<SalesInvoice | null>(null);
   const [deletingInvoice, setDeletingInvoice] = useState<SalesInvoice | null>(null);
 
+  // Add item state inside Editing Invoice Modal
+  const [showAddItemForm, setShowAddItemForm] = useState(false);
+  const [addSelectedProductId, setAddSelectedProductId] = useState('');
+  const [addItemName, setAddItemName] = useState('');
+  const [addItemPrice, setAddItemPrice] = useState(0);
+  const [addItemQty, setAddItemQty] = useState(1);
+  const [addItemWarranty, setAddItemWarranty] = useState(12);
+  const [addItemImeis, setAddItemImeis] = useState<string[]>([]);
+
+  const handleUpdateInvoiceItems = (newItems: InvoiceItem[]) => {
+    if (!editingInvoice) return;
+    const newTotal = newItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    
+    let newDebtAmount = editingInvoice.debtAmount;
+    if (editingInvoice.debtAmount && editingInvoice.debtAmount > 0) {
+      newDebtAmount = Math.min(newTotal, editingInvoice.debtAmount);
+    }
+    if (editingInvoice.paymentMethod === 'Ghi nợ' && (!newDebtAmount || newDebtAmount <= 0)) {
+      newDebtAmount = newTotal;
+    }
+
+    setEditingInvoice({
+      ...editingInvoice,
+      items: newItems,
+      totalAmount: newTotal,
+      debtAmount: newDebtAmount
+    });
+  };
+
+  const handleRemoveInvoiceItem = (idx: number) => {
+    if (!editingInvoice) return;
+    const updated = editingInvoice.items.filter((_, i) => i !== idx);
+    handleUpdateInvoiceItems(updated);
+  };
+
+  const handleAddNewInvoiceItem = () => {
+    if (!editingInvoice) return;
+    const name = addItemName.trim();
+    if (!name) return;
+
+    const newItem: InvoiceItem = {
+      productId: addSelectedProductId || `custom_${Date.now()}`,
+      productName: name,
+      quantity: Math.max(1, addItemQty),
+      price: Math.max(0, addItemPrice),
+      warrantyMonths: Math.max(0, addItemWarranty),
+      imeis: addItemImeis.length > 0 ? addItemImeis : undefined
+    };
+
+    const updated = [...editingInvoice.items, newItem];
+    handleUpdateInvoiceItems(updated);
+
+    // Reset form
+    setShowAddItemForm(false);
+    setAddSelectedProductId('');
+    setAddItemName('');
+    setAddItemPrice(0);
+    setAddItemQty(1);
+    setAddItemWarranty(12);
+    setAddItemImeis([]);
+  };
+
   // Global Barcode Scanner Listener
   useBarcodeScanner((barcode) => {
     if (showAddProductModal) {
@@ -2665,65 +2727,288 @@ export default function SalesManager({
 
                 {/* Invoice Items List */}
                 <div>
-                  <h3 className="text-xs font-extrabold uppercase text-slate-700 mb-2">Danh Sách Mặt Hàng Trong Hóa Đơn</h3>
-                  <div className="space-y-2">
-                    {editingInvoice.items.map((item, idx) => (
-                      <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <p className="text-xs font-bold text-slate-900">{item.productName}</p>
-                          <span className="text-[11px] font-mono font-extrabold text-indigo-600">
-                            Thành tiền: {formatVND(item.price * item.quantity)}
-                          </span>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-xs font-extrabold uppercase text-slate-700">
+                      Danh Sách Mặt Hàng Trong Hóa Đơn ({editingInvoice.items.length})
+                    </h3>
+                    {!showAddItemForm && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddItemForm(true);
+                          setAddSelectedProductId('');
+                          setAddItemName('');
+                          setAddItemPrice(0);
+                          setAddItemQty(1);
+                          setAddItemWarranty(12);
+                          setAddItemImeis([]);
+                        }}
+                        className="text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Thêm sản phẩm / linh kiện</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Add Item Form Card */}
+                  {showAddItemForm && (
+                    <div className="mb-3 bg-amber-50/80 p-3.5 rounded-xl border border-amber-300 space-y-3 shadow-xs">
+                      <div className="flex justify-between items-center pb-2 border-b border-amber-200">
+                        <span className="text-xs font-extrabold text-amber-950 uppercase flex items-center gap-1.5">
+                          <PlusCircle className="w-4 h-4 text-amber-600" /> Thêm sản phẩm hoặc linh kiện mới
+                        </span>
+                        <button 
+                          type="button" 
+                          onClick={() => setShowAddItemForm(false)} 
+                          className="text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                            Chọn từ kho hàng sẵn có (Tùy chọn)
+                          </label>
+                          <select
+                            value={addSelectedProductId}
+                            onChange={e => {
+                              const pId = e.target.value;
+                              setAddSelectedProductId(pId);
+                              const sel = products.find(p => p.id === pId);
+                              if (sel) {
+                                setAddItemName(sel.name);
+                                setAddItemPrice(sel.price);
+                                setAddItemWarranty(sel.warrantyMonths ?? 12);
+                                setAddItemImeis([]);
+                              }
+                            }}
+                            className="w-full text-xs bg-white border border-amber-300 rounded-lg p-2 font-semibold text-slate-800 focus:outline-hidden focus:border-amber-500"
+                          >
+                            <option value="">-- Chọn từ kho (Hoặc tự nhập tên bên dưới) --</option>
+                            {products.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} — Tồn: {p.stock} — Giá: {formatVND(p.price)}
+                              </option>
+                            ))}
+                          </select>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 items-center">
+                        <div>
+                          <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                            Tên sản phẩm / Linh kiện / Dịch vụ <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Nhập tên linh kiện, thiết bị hoặc dịch vụ..."
+                            value={addItemName}
+                            onChange={e => setAddItemName(e.target.value)}
+                            className="w-full text-xs bg-white border border-amber-300 rounded-lg p-2 font-bold text-slate-900 focus:outline-hidden focus:border-amber-500"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Đơn Giá (VNĐ)</label>
+                            <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Đơn giá (VNĐ)</label>
                             <input
                               type="number"
-                              value={item.price}
-                              onChange={e => {
-                                const newPrice = Math.max(0, Number(e.target.value));
-                                const updatedItems = [...editingInvoice.items];
-                                updatedItems[idx] = { ...item, price: newPrice };
-                                const newTotal = updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-                                setEditingInvoice({ ...editingInvoice, items: updatedItems, totalAmount: newTotal });
-                              }}
-                              className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                              min={0}
+                              value={addItemPrice}
+                              onChange={e => setAddItemPrice(Math.max(0, Number(e.target.value)))}
+                              className="w-full text-xs bg-white border border-amber-300 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
                             />
                           </div>
+
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Số Lượng</label>
+                            <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Số lượng</label>
                             <input
                               type="number"
                               min={1}
-                              value={item.quantity}
-                              onChange={e => {
-                                const newQty = Math.max(1, Number(e.target.value));
-                                const updatedItems = [...editingInvoice.items];
-                                updatedItems[idx] = { ...item, quantity: newQty };
-                                const newTotal = updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-                                setEditingInvoice({ ...editingInvoice, items: updatedItems, totalAmount: newTotal });
-                              }}
-                              className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                              value={addItemQty}
+                              onChange={e => setAddItemQty(Math.max(1, Number(e.target.value)))}
+                              className="w-full text-xs bg-white border border-amber-300 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Bảo hành (tháng)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={addItemWarranty}
+                              onChange={e => setAddItemWarranty(Math.max(0, Number(e.target.value)))}
+                              className="w-full text-xs bg-white border border-amber-300 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
                             />
                           </div>
                         </div>
 
-                        {item.imeis && item.imeis.length > 0 && (
-                          <div className="text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
-                            <span className="font-bold">Danh sách IMEI:</span>
-                            <div className="flex flex-wrap gap-1 mt-1 font-mono">
-                              {item.imeis.map(im => (
-                                <span key={im} className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded-sm text-[10px] border border-slate-200">
-                                  {im}
-                                </span>
-                              ))}
+                        {/* Available IMEIs if product has IMEI */}
+                        {(() => {
+                          const selProd = products.find(p => p.id === addSelectedProductId);
+                          if (!selProd?.hasImei) return null;
+                          const avail = imeis.filter(i => i.productId === selProd.id && i.status === 'in_stock');
+                          if (avail.length === 0) {
+                            return <p className="text-[10px] text-rose-600 font-bold">Không có mã IMEI nào sẵn có trong kho cho sản phẩm này.</p>;
+                          }
+                          return (
+                            <div className="bg-white p-2 rounded-lg border border-amber-200">
+                              <label className="block text-[10px] font-bold text-amber-900 mb-1">
+                                Chọn IMEI bán kèm ({addItemImeis.length}/{avail.length}):
+                              </label>
+                              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                                {avail.map(im => {
+                                  const isChecked = addItemImeis.includes(im.imei);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={im.id}
+                                      onClick={() => {
+                                        let next: string[];
+                                        if (isChecked) {
+                                          next = addItemImeis.filter(x => x !== im.imei);
+                                        } else {
+                                          next = [...addItemImeis, im.imei];
+                                        }
+                                        setAddItemImeis(next);
+                                        if (next.length > 0) {
+                                          setAddItemQty(next.length);
+                                        }
+                                      }}
+                                      className={`px-2 py-0.5 text-[10px] font-mono rounded border cursor-pointer transition ${
+                                        isChecked ? 'bg-amber-600 text-white border-amber-600 font-bold' : 'bg-slate-50 text-slate-700 border-slate-200'
+                                      }`}
+                                    >
+                                      {im.imei}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-1 border-t border-amber-200">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddItemForm(false)}
+                          className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-200/60 rounded-lg cursor-pointer"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAddNewInvoiceItem}
+                          disabled={!addItemName.trim()}
+                          className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Thêm vào hóa đơn</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Existing Items List */}
+                  <div className="space-y-2">
+                    {editingInvoice.items.length === 0 ? (
+                      <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-center text-xs text-slate-500 font-medium">
+                        Hóa đơn chưa có mặt hàng nào. Vui lòng bấm &quot;Thêm sản phẩm / linh kiện&quot; để bổ sung.
+                      </div>
+                    ) : (
+                      editingInvoice.items.map((item, idx) => (
+                        <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col gap-2">
+                          <div className="flex justify-between items-center gap-2">
+                            <input
+                              type="text"
+                              value={item.productName}
+                              onChange={e => {
+                                const newName = e.target.value;
+                                const updatedItems = [...editingInvoice.items];
+                                updatedItems[idx] = { ...item, productName: newName };
+                                setEditingInvoice({ ...editingInvoice, items: updatedItems });
+                              }}
+                              className="text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-lg px-2 py-1 flex-1 focus:outline-hidden focus:border-amber-500"
+                            />
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[11px] font-mono font-extrabold text-indigo-600">
+                                {formatVND(item.price * item.quantity)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveInvoiceItem(idx)}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                title="Xóa mặt hàng này khỏi hóa đơn"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           </div>
-                        )}
-                      </div>
-                    ))}
+
+                          <div className="grid grid-cols-3 gap-2 items-center">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Đơn Giá (VNĐ)</label>
+                              <input
+                                type="number"
+                                value={item.price}
+                                onChange={e => {
+                                  const newPrice = Math.max(0, Number(e.target.value));
+                                  const updatedItems = [...editingInvoice.items];
+                                  updatedItems[idx] = { ...item, price: newPrice };
+                                  handleUpdateInvoiceItems(updatedItems);
+                                }}
+                                className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Số Lượng</label>
+                              <input
+                                type="number"
+                                min={1}
+                                value={item.quantity}
+                                onChange={e => {
+                                  const newQty = Math.max(1, Number(e.target.value));
+                                  const updatedItems = [...editingInvoice.items];
+                                  updatedItems[idx] = { ...item, quantity: newQty };
+                                  handleUpdateInvoiceItems(updatedItems);
+                                }}
+                                className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Bảo Hành (Tháng)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={item.warrantyMonths ?? 0}
+                                onChange={e => {
+                                  const newWarr = Math.max(0, Number(e.target.value));
+                                  const updatedItems = [...editingInvoice.items];
+                                  updatedItems[idx] = { ...item, warrantyMonths: newWarr };
+                                  setEditingInvoice({ ...editingInvoice, items: updatedItems });
+                                }}
+                                className="w-full text-xs bg-white border border-slate-200 rounded-lg p-2 font-mono font-bold focus:outline-hidden focus:border-amber-500"
+                              />
+                            </div>
+                          </div>
+
+                          {item.imeis && item.imeis.length > 0 && (
+                            <div className="text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
+                              <span className="font-bold">Danh sách IMEI:</span>
+                              <div className="flex flex-wrap gap-1 mt-1 font-mono">
+                                {item.imeis.map(im => (
+                                  <span key={im} className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded-sm text-[10px] border border-slate-200">
+                                    {im}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
 
