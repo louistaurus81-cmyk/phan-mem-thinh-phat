@@ -13,7 +13,8 @@ import {
   FileCheck,
   User as UserIcon,
   Phone,
-  Wrench
+  Wrench,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -23,6 +24,7 @@ interface WarrantyManagerProps {
   users: User[];
   currentUser: User;
   onAddWarranty: (card: WarrantyCard) => void;
+  onDeleteWarranty?: (id: string) => void;
   invoices: SalesInvoice[];
   products?: Product[];
 }
@@ -108,12 +110,14 @@ export default function WarrantyManager({
   users,
   currentUser,
   onAddWarranty,
+  onDeleteWarranty,
   invoices,
   products = []
  }: WarrantyManagerProps) {
   const [portalSearch, setPortalSearch] = useState('');
   const [activeSearchResult, setActiveSearchResult] = useState<{ type: 'warranty' | 'repair', data: WarrantyCard | RepairTicket } | null>(null);
   const [searched, setSearched] = useState(false);
+  const [deletingCard, setDeletingCard] = useState<WarrantyCard | null>(null);
 
   // Universal Search Engine for Product IMEI, Warranty Cards, and Invoice Items
   const performWarrantyLookup = (rawQuery: string) => {
@@ -695,9 +699,24 @@ export default function WarrantyManager({
                       })()}
                     </td>
                     <td className="py-4 text-right">
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${statusInfo.color}`}>
-                        {statusInfo.isUnderWarranty ? 'BẢO VỆ HOẠT ĐỘNG' : 'HẾT HẠN HỖ TRỢ'}
-                      </span>
+                      <div className="flex items-center justify-end gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${statusInfo.color}`}>
+                          {statusInfo.isUnderWarranty ? 'BẢO VỆ HOẠT ĐỘNG' : 'HẾT HẠN HỖ TRỢ'}
+                        </span>
+                        {onDeleteWarranty && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeletingCard(card);
+                            }}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-1.5 rounded-lg text-xs font-bold inline-flex items-center justify-center cursor-pointer transition border border-rose-200/80 shrink-0"
+                            title="Xóa thẻ bảo hành này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1147,6 +1166,64 @@ export default function WarrantyManager({
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer transition border border-slate-200"
                 >
                   Đóng cửa sổ
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deletingCard && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Xác nhận xóa thẻ bảo hành</h3>
+                  <p className="text-xs text-slate-500 font-semibold">Thu hồi quyền lợi bảo hành điện tử</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs space-y-1.5">
+                <p className="font-bold text-slate-900">{deletingCard.productName}</p>
+                <p className="font-mono text-indigo-600 font-bold">Serial/IMEI: {deletingCard.serialNumber}</p>
+                <p className="text-slate-700">Khách hàng: <span className="font-bold">{deletingCard.customerName}</span> ({deletingCard.customerPhone || 'Không có SĐT'})</p>
+                <p className="text-slate-500">Hạn bảo hành: {deletingCard.purchaseDate} ➔ {deletingCard.expiryDate}</p>
+              </div>
+
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Bạn có chắc chắn muốn xóa bản ghi thẻ bảo hành điện tử này khỏi hệ thống không? Hành động này không thể hoàn tác.
+              </p>
+
+              <div className="flex justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingCard(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (deletingCard && onDeleteWarranty) {
+                      onDeleteWarranty(deletingCard.id);
+                    }
+                    setDeletingCard(null);
+                  }}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xác nhận xóa</span>
                 </button>
               </div>
             </motion.div>

@@ -411,7 +411,37 @@ export default function App() {
 
     // 2. Sync warranty cards
     if (warranties.length > 0) {
-      const syncedWarrs = warranties.map(w => {
+      let hasWarrChange = false;
+
+      // Filter out orphaned warranty cards whose linked sales invoice has been deleted
+      const cleanedWarranties = warranties.filter(w => {
+        if (w.linkedInvoiceId && !invoices.some(i => i.id === w.linkedInvoiceId)) {
+          hasWarrChange = true;
+          return false;
+        }
+
+        const textToSearch = `${w.notes || ''} ${w.serialNumber || ''} ${w.productName || ''}`;
+        const matchInvNum = textToSearch.match(/(HD-\d+|PC-\d+)/i);
+        if (matchInvNum && matchInvNum[0]) {
+          const referencedInvNum = matchInvNum[0].toUpperCase();
+          const invExists = invoices.some(i => i.invoiceNumber.toUpperCase() === referencedInvNum);
+          if (!invExists) {
+            const isInvoiceGenerated = 
+              !!w.linkedInvoiceId || 
+              (w.notes && (w.notes.includes('Hoá đơn') || w.notes.includes('Hóa đơn') || w.notes.includes('Kích hoạt theo'))) ||
+              w.productName.startsWith('Bộ Cấu Hình PC') ||
+              w.serialNumber.includes('-HD-');
+
+            if (isInvoiceGenerated) {
+              hasWarrChange = true;
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+
+      const syncedWarrs = cleanedWarranties.map(w => {
         // First check if it's a repair service warranty card
         const matchedRepair = repairs.find(r => {
           if (w.linkedRepairId && r.id === w.linkedRepairId) return true;
@@ -1121,13 +1151,38 @@ export default function App() {
     ));
     saveDebts(nextDebts);
 
+    // Also remove linked warranty cards
+    const invNum = targetInvoice.invoiceNumber;
+    const nextWarranties = warranties.filter(w => !(
+      (w.linkedInvoiceId && w.linkedInvoiceId === targetInvoice.id) ||
+      (w.serialNumber && (w.serialNumber === invNum || w.serialNumber.endsWith(`-${invNum}`))) ||
+      (w.notes && invNum && w.notes.includes(invNum)) ||
+      (invNum && w.productName.includes(invNum))
+    ));
+    saveWarranties(nextWarranties);
+
     logActivity(
       'sale',
       'Xóa hóa đơn bán hàng',
-      `Đã xóa vĩnh viễn hóa đơn ${targetInvoice.invoiceNumber} (${targetInvoice.customerName}) - Hoàn trả tồn kho`,
+      `Đã xóa vĩnh viễn hóa đơn ${targetInvoice.invoiceNumber} (${targetInvoice.customerName}) - Hoàn trả tồn kho & thu hồi bảo hành`,
       targetInvoice.totalAmount,
       'danger'
     );
+  };
+
+  const handleDeleteWarranty = (id: string) => {
+    const targetWarr = warranties.find(w => w.id === id);
+    const nextWarranties = warranties.filter(w => w.id !== id);
+    saveWarranties(nextWarranties);
+    if (targetWarr) {
+      logActivity(
+        'sale',
+        'Xóa thẻ bảo hành',
+        `Admin ${currentUser?.fullName || ''} đã xóa thẻ bảo hành ${targetWarr.productName} (S/N: ${targetWarr.serialNumber})`,
+        0,
+        'danger'
+      );
+    }
   };
 
   const handleDeleteDebt = (debtId: string) => {
@@ -1949,6 +2004,7 @@ export default function App() {
                 users={users}
                 currentUser={currentUser!}
                 onAddWarranty={handleAddWarranty}
+                onDeleteWarranty={handleDeleteWarranty}
                 invoices={invoices}
               />
             )}
