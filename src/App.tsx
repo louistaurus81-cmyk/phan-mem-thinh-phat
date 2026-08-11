@@ -354,8 +354,8 @@ export default function App() {
       (d.note && (d.note.includes(rep.ticketNumber) || d.note.includes(cleanTicketNum)))
     );
 
-    const hasDebt = (rep.debtAmount && rep.debtAmount > 0) || (linkedDebt && linkedDebt.remainingAmount > 0) || !!linkedDebt;
-    const calcDebtAmount = rep.debtAmount || linkedDebt?.remainingAmount || linkedDebt?.amount;
+    const hasDebt = !!(rep.debtAmount && rep.debtAmount > 0) || !!(linkedDebt && linkedDebt.remainingAmount > 0);
+    const calcDebtAmount = (rep.debtAmount && rep.debtAmount > 0) ? rep.debtAmount : (linkedDebt && linkedDebt.remainingAmount > 0 ? linkedDebt.remainingAmount : 0);
 
     return {
       id: `inv_repair_${rep.id}`,
@@ -369,7 +369,7 @@ export default function App() {
       createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
       note: `Xuất kho linh kiện & sửa chữa #${rep.ticketNumber} (${rep.deviceName}). Giải pháp: ${rep.solution || 'Thay thế linh kiện'}` + (hasDebt && calcDebtAmount ? ` [Ghi nợ sửa chữa: ${calcDebtAmount}₫]` : ''),
       processedBy: rep.processedBy || rep.technician || 'Kỹ thuật viên',
-      debtAmount: hasDebt ? calcDebtAmount : undefined,
+      debtAmount: hasDebt ? calcDebtAmount : 0,
       debtDueDate: rep.debtDueDate || linkedDebt?.dueDate
     };
   };
@@ -538,17 +538,22 @@ export default function App() {
 
     repairs.forEach(rep => {
       if ((rep.usedParts && rep.usedParts.length > 0) || rep.status === 'delivered' || rep.status === 'completed' || rep.actualCost > 0) {
-        const repairInv = createSalesInvoiceFromRepair(rep, products);
+        const repairInvId = `inv_repair_${rep.id}`;
+        const cleanTicketNum = rep.ticketNumber ? rep.ticketNumber.replace(/^REP-/, '') : '';
         const existingIdx = nextInvoices.findIndex(inv => 
-          inv.id === repairInv.id || 
-          inv.invoiceNumber === repairInv.invoiceNumber ||
+          inv.id === repairInvId || 
+          inv.invoiceNumber === `HD-REP-${cleanTicketNum}` ||
           (inv.note && inv.note.includes(rep.ticketNumber))
         );
 
-        if (existingIdx === -1) {
-          nextInvoices.unshift(repairInv);
-          hasInvoiceSync = true;
-        } else {
+        const hasLinkedDebt = debts.some(d => 
+          (d.invoiceId && (d.invoiceId === repairInvId || d.invoiceId === rep.id)) ||
+          (d.invoiceNumber && d.invoiceNumber.includes(cleanTicketNum)) ||
+          (d.note && d.note.includes(rep.ticketNumber))
+        );
+
+        if (existingIdx > -1) {
+          const repairInv = createSalesInvoiceFromRepair(rep, products);
           const curr = nextInvoices[existingIdx];
           if (
             curr.totalAmount !== repairInv.totalAmount ||
@@ -565,6 +570,10 @@ export default function App() {
             };
             hasInvoiceSync = true;
           }
+        } else if ((rep.debtAmount && rep.debtAmount > 0) || hasLinkedDebt) {
+          const repairInv = createSalesInvoiceFromRepair(rep, products);
+          nextInvoices.unshift(repairInv);
+          hasInvoiceSync = true;
         }
       }
     });
@@ -1143,12 +1152,32 @@ export default function App() {
     const nextInvoices = invoices.filter(inv => inv.id !== invoiceId);
     saveInvoices(nextInvoices);
 
-    const nextDebts = debts.filter(d => !(
-      (d.invoiceId && d.invoiceId === targetInvoice.id) ||
-      (d.invoiceNumber && d.invoiceNumber === targetInvoice.invoiceNumber) ||
-      (d.customerId === targetInvoice.customerId && d.createdAt === targetInvoice.createdAt)
-    ));
+    const nextDebts = debts.filter(d => !isInvoiceMatchDebt(targetInvoice, d));
     saveDebts(nextDebts);
+
+    // Also clear debtAmount on any linked repair ticket
+    let repairsChanged = false;
+    const nextRepairs = repairs.map(rep => {
+      if (
+        targetInvoice.id === `inv_repair_${rep.id}` ||
+        (targetInvoice.invoiceNumber && (targetInvoice.invoiceNumber.includes(rep.ticketNumber) || targetInvoice.invoiceNumber.includes(rep.ticketNumber.replace(/^REP-/, '')))) ||
+        (targetInvoice.note && targetInvoice.note.includes(rep.ticketNumber))
+      ) {
+        if (rep.debtAmount && rep.debtAmount > 0) {
+          repairsChanged = true;
+          return {
+            ...rep,
+            debtAmount: 0,
+            debtDueDate: undefined
+          };
+        }
+      }
+      return rep;
+    });
+
+    if (repairsChanged) {
+      saveRepairs(nextRepairs);
+    }
 
     // Also remove linked warranty cards
     const invNum = targetInvoice.invoiceNumber;
@@ -1385,6 +1414,9 @@ export default function App() {
         };
         saveDebts([...debts, newDebt]);
       }
+    } else if (existingDebtIdx > -1) {
+      const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
+      saveDebts(nextDebts);
     }
 
     if (updatedTicket.warrantyUntil) {
