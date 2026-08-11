@@ -611,8 +611,7 @@ export default function App() {
             curr.invoiceId !== invId ||
             curr.invoiceNumber !== invNum ||
             curr.customerName !== rep.customerName ||
-            curr.customerPhone !== rep.customerPhone ||
-            curr.remainingAmount !== rep.debtAmount
+            curr.customerPhone !== rep.customerPhone
           ) {
             nextDebts[existingIdx] = {
               ...curr,
@@ -620,10 +619,7 @@ export default function App() {
               invoiceNumber: invNum,
               customerId: rep.customerId || curr.customerId,
               customerName: rep.customerName,
-              customerPhone: rep.customerPhone || curr.customerPhone,
-              amount: rep.actualCost || rep.estimatedCost,
-              remainingAmount: rep.debtAmount,
-              note: curr.note || `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`
+              customerPhone: rep.customerPhone || curr.customerPhone
             };
             hasDebtSync = true;
           }
@@ -633,9 +629,12 @@ export default function App() {
 
     invoices.forEach(inv => {
       if (inv.debtAmount && inv.debtAmount > 0) {
+        const cleanInvNum = inv.invoiceNumber ? inv.invoiceNumber.replace(/^HD-/, '') : '';
         const existingIdx = nextDebts.findIndex(d => 
           (d.invoiceId && d.invoiceId === inv.id) ||
-          (d.invoiceNumber && d.invoiceNumber === inv.invoiceNumber)
+          (d.invoiceNumber && d.invoiceNumber === inv.invoiceNumber) ||
+          (d.invoiceNumber && d.invoiceNumber.replace(/^HD-/, '') === cleanInvNum) ||
+          (d.note && inv.invoiceNumber && d.note.includes(inv.invoiceNumber))
         );
 
         if (existingIdx === -1) {
@@ -1185,6 +1184,68 @@ export default function App() {
     }
   };
 
+  const handleUpdateDebts = (updatedDebts: Debt[]) => {
+    saveDebts(updatedDebts);
+
+    let invoicesChanged = false;
+    let nextInvoices = [...invoices];
+
+    let repairsChanged = false;
+    let nextRepairs = [...repairs];
+
+    updatedDebts.forEach(d => {
+      // Find matching invoices
+      nextInvoices = nextInvoices.map(inv => {
+        const cleanInvNum = inv.invoiceNumber ? inv.invoiceNumber.replace(/^HD-/, '') : '';
+        const cleanDebtNum = d.invoiceNumber ? d.invoiceNumber.replace(/^HD-/, '') : '';
+        const isMatch = 
+          (d.invoiceId && inv.id === d.invoiceId) ||
+          (d.invoiceNumber && inv.invoiceNumber === d.invoiceNumber) ||
+          (cleanDebtNum && cleanInvNum && cleanDebtNum === cleanInvNum) ||
+          (d.note && inv.invoiceNumber && d.note.includes(inv.invoiceNumber));
+
+        if (isMatch) {
+          if (inv.debtAmount !== d.remainingAmount) {
+            invoicesChanged = true;
+            return {
+              ...inv,
+              debtAmount: d.remainingAmount,
+              paymentMethod: d.remainingAmount === 0 && inv.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : inv.paymentMethod
+            };
+          }
+        }
+        return inv;
+      });
+
+      // Find matching repairs
+      nextRepairs = nextRepairs.map(rep => {
+        const cleanTicketNum = rep.ticketNumber ? rep.ticketNumber.replace(/^REP-/, '') : '';
+        const isMatch = 
+          (d.invoiceId && d.invoiceId === `inv_repair_${rep.id}`) ||
+          (d.invoiceNumber && (d.invoiceNumber === `HD-REP-${cleanTicketNum}` || d.invoiceNumber.includes(rep.ticketNumber))) ||
+          (d.note && rep.ticketNumber && d.note.includes(rep.ticketNumber));
+
+        if (isMatch) {
+          if (rep.debtAmount !== d.remainingAmount) {
+            repairsChanged = true;
+            return {
+              ...rep,
+              debtAmount: d.remainingAmount
+            };
+          }
+        }
+        return rep;
+      });
+    });
+
+    if (invoicesChanged) {
+      saveInvoices(nextInvoices);
+    }
+    if (repairsChanged) {
+      saveRepairs(nextRepairs);
+    }
+  };
+
   const handleDeleteDebt = (debtId: string) => {
     const targetDebt = debts.find(d => d.id === debtId);
     if (!targetDebt) return;
@@ -1192,25 +1253,63 @@ export default function App() {
     const nextDebts = debts.filter(d => d.id !== debtId);
     saveDebts(nextDebts);
 
-    if (targetDebt.invoiceId || targetDebt.invoiceNumber) {
-      const targetInvoice = invoices.find(i => 
-        (targetDebt.invoiceId && i.id === targetDebt.invoiceId) ||
-        (targetDebt.invoiceNumber && i.invoiceNumber === targetDebt.invoiceNumber)
-      );
-      if (targetInvoice && targetInvoice.debtAmount) {
-        const nextInvoices = invoices.map(i => i.id === targetInvoice.id ? { ...i, debtAmount: 0 } : i);
-        saveInvoices(nextInvoices);
-      }
+    // 1. Clear matching invoices debtAmount
+    let invoicesUpdated = false;
+    const nextInvoices = invoices.map(i => {
+      const matchId = !!(targetDebt.invoiceId && i.id === targetDebt.invoiceId);
+      const matchNum = !!(targetDebt.invoiceNumber && i.invoiceNumber === targetDebt.invoiceNumber);
+      
+      const cleanDebtNum = targetDebt.invoiceNumber ? targetDebt.invoiceNumber.replace(/^HD-/, '') : '';
+      const cleanInvNum = i.invoiceNumber ? i.invoiceNumber.replace(/^HD-/, '') : '';
+      const matchCleanNum = !!(cleanDebtNum && cleanInvNum && (cleanDebtNum === cleanInvNum || cleanInvNum.endsWith(cleanDebtNum) || cleanDebtNum.endsWith(cleanInvNum)));
 
-      const targetRepair = repairs.find(r => 
-        (targetDebt.invoiceId && targetDebt.invoiceId === `inv_repair_${r.id}`) ||
-        (targetDebt.invoiceNumber && targetDebt.invoiceNumber === `HD-REP-${r.ticketNumber.replace(/^REP-/, '')}`) ||
-        (targetDebt.note && targetDebt.note.includes(r.ticketNumber))
-      );
-      if (targetRepair && targetRepair.debtAmount) {
-        const nextRepairs = repairs.map(r => r.id === targetRepair.id ? { ...r, debtAmount: 0 } : r);
-        saveRepairs(nextRepairs);
+      const matchCustDate = !!(targetDebt.customerId && i.customerId === targetDebt.customerId && 
+        (i.createdAt === targetDebt.createdAt || (i.totalAmount === targetDebt.amount && i.debtAmount && i.debtAmount > 0)));
+
+      const matchNote1 = !!(targetDebt.note && i.invoiceNumber && targetDebt.note.includes(i.invoiceNumber));
+      const matchNote2 = !!(i.note && targetDebt.invoiceNumber && i.note.includes(targetDebt.invoiceNumber));
+
+      if (matchId || matchNum || matchCleanNum || matchCustDate || matchNote1 || matchNote2) {
+        if (i.debtAmount && i.debtAmount > 0) {
+          invoicesUpdated = true;
+          return {
+            ...i,
+            debtAmount: 0,
+            paymentMethod: i.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : i.paymentMethod
+          };
+        }
       }
+      return i;
+    });
+
+    if (invoicesUpdated) {
+      saveInvoices(nextInvoices);
+    }
+
+    // 2. Clear matching repair tickets debtAmount
+    let repairsUpdated = false;
+    const nextRepairs = repairs.map(r => {
+      const matchId = !!(targetDebt.invoiceId && targetDebt.invoiceId === `inv_repair_${r.id}`);
+      const cleanTicketNum = r.ticketNumber ? r.ticketNumber.replace(/^REP-/, '') : '';
+      const matchNum = !!(targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber) || targetDebt.invoiceNumber.includes(cleanTicketNum)));
+      const matchNote = !!(targetDebt.note && r.ticketNumber && targetDebt.note.includes(r.ticketNumber));
+      const matchCust = !!(targetDebt.customerId && r.customerId === targetDebt.customerId && 
+        ((r.actualCost || r.estimatedCost) === targetDebt.amount && r.debtAmount && r.debtAmount > 0));
+
+      if (matchId || matchNum || matchNote || matchCust) {
+        if (r.debtAmount && r.debtAmount > 0) {
+          repairsUpdated = true;
+          return {
+            ...r,
+            debtAmount: 0
+          };
+        }
+      }
+      return r;
+    });
+
+    if (repairsUpdated) {
+      saveRepairs(nextRepairs);
     }
 
     logActivity(
@@ -2024,7 +2123,7 @@ export default function App() {
             {activeTab === 'debts' && (
               <DebtManager 
                 debts={debts}
-                onUpdateDebts={saveDebts}
+                onUpdateDebts={handleUpdateDebts}
                 onDeleteDebt={handleDeleteDebt}
                 customers={customers}
                 invoices={invoices}
