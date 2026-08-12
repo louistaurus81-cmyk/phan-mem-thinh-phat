@@ -483,7 +483,7 @@ export default function DebtManager({
         </div>
 
         {/* Debts Table */}
-        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
+        <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
               <tr className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">

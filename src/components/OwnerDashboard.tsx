@@ -489,7 +489,7 @@ export default function OwnerDashboard({
             </p>
           </div>
         ) : (
-          <div className="space-y-2.5 max-h-[calc(100vh-320px)] min-h-[300px] overflow-y-auto pr-1">
+          <div className="space-y-2.5">
             {activities
               .filter(act => {
                 if (logFilterCategory === 'unread' && act.readByOwner) return false;

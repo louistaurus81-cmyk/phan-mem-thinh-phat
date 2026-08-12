@@ -606,7 +606,7 @@ export default function WarrantyManager({
         </div>
 
         {/* Table Ledger list */}
-        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-380px)] min-h-[250px]">
+        <div className="overflow-x-auto">
           <table className="w-full text-left text-sm border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
               <tr className="text-slate-500 font-bold text-xs">

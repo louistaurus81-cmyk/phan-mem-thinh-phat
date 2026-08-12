@@ -247,7 +247,7 @@ export default function AccountManager({
             </span>
           </div>
 
-          <div className="divide-y divide-slate-100 max-h-[calc(100vh-280px)] min-h-[350px] overflow-y-auto pr-1">
+          <div className="divide-y divide-slate-100">
             {users.map(u => {
               const isCurrentUser = currentUser ? u.id === currentUser.id : false;
               const perms = getUserPermissions(u);

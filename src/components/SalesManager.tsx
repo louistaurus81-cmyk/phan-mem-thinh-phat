@@ -774,7 +774,7 @@ export default function SalesManager({
               })}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {filteredProducts.map(prod => {
                 const inStockAmt = prod.hasImei ? imeis.filter(i => i.productId === prod.id && i.status === 'in_stock').length : prod.stock;
 
@@ -1181,7 +1181,7 @@ export default function SalesManager({
             />
           </div>
 
-          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
+          <div className="overflow-x-auto">
             <table className="w-full text-left text-sm border-collapse">
               <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
                 <tr className="text-slate-500 font-bold text-xs">
@@ -1309,7 +1309,7 @@ export default function SalesManager({
             </div>
           </div>
 
-          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
+          <div className="overflow-x-auto">
             <table className="w-full text-left text-sm border-collapse">
               <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
                 <tr className="text-slate-500 font-bold text-xs">

@@ -2063,11 +2063,11 @@ export default function App() {
       </nav>
  
       {/* 3. PRIMARY MAIN CONTENT STAGE */}
-      <main className="flex-1 h-full min-h-0 overflow-y-auto px-2 py-4 md:p-2 flex flex-col">
+      <main className="flex-1 h-full min-h-0 overflow-hidden px-2 py-3 md:p-2 flex flex-col">
 
         
         {/* Workspace dynamic title bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-100 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3 border-b border-slate-100 pb-3 shrink-0">
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
               {activeTab === 'dashboard' && 'Bảng Điều Khiển Kinh Doanh'}
@@ -2225,6 +2225,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.18 }}
+            className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col"
           >
             {activeTab === 'dashboard' && (
               <Dashboard 
