@@ -229,14 +229,13 @@ export default function DebtManager({
 
     if (updatedDebt) {
       const pIdx = (updatedDebt.payments || []).length;
-      if (window.confirm(`Khấu trừ ${formatVND(payAmountInput)} công nợ thành công!\n\nBạn có muốn xem hoặc in PHIẾU THU CÔNG NỢ ngay bây giờ không?`)) {
-        setPrintingPaymentReceipt({
-          debt: updatedDebt,
-          payment: newPayment,
-          paymentIndex: pIdx,
-          remainingAfter: newRemainingAfter
-        });
-      }
+      // Immediately open receipt view modal non-blockingly
+      setPrintingPaymentReceipt({
+        debt: updatedDebt,
+        payment: newPayment,
+        paymentIndex: pIdx,
+        remainingAfter: newRemainingAfter
+      });
     }
   };
 

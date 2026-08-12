@@ -13,6 +13,7 @@ import {
   PrintSettings,
   ProductIMEI,
   Debt,
+  DebtPayment,
   Supplier,
   StaffActivityLog,
   ActivityType,
@@ -582,21 +583,16 @@ export default function App() {
       saveInvoices(nextInvoices);
     }
 
-    // 4. Auto-sync debts with repair tickets and sales invoices
-    let hasDebtSync = false;
+    // 4. Auto-sync & deduplicate debts with repair tickets and sales invoices
     let nextDebts = [...debts];
 
     repairs.forEach(rep => {
       if (rep.debtAmount && rep.debtAmount > 0) {
-        const cleanTicketNum = rep.ticketNumber.replace(/^REP-/, '');
+        const cleanTicketNum = cleanDocNumber(rep.ticketNumber);
         const invId = `inv_repair_${rep.id}`;
         const invNum = `HD-REP-${cleanTicketNum}`;
 
-        const existingIdx = nextDebts.findIndex(d => 
-          (d.invoiceId && d.invoiceId === invId) ||
-          (d.invoiceNumber && d.invoiceNumber === invNum) ||
-          (d.note && (d.note.includes(rep.ticketNumber) || d.note.includes(cleanTicketNum)))
-        );
+        const existingIdx = nextDebts.findIndex(d => isRepairMatchDebt(rep, d));
 
         if (existingIdx === -1) {
           nextDebts.unshift({
@@ -613,30 +609,11 @@ export default function App() {
             createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
             note: `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`
           });
-          hasDebtSync = true;
-        } else {
-          const curr = nextDebts[existingIdx];
-          if (
-            curr.invoiceId !== invId ||
-            curr.invoiceNumber !== invNum ||
-            curr.customerName !== rep.customerName ||
-            curr.customerPhone !== rep.customerPhone
-          ) {
-            nextDebts[existingIdx] = {
-              ...curr,
-              invoiceId: invId,
-              invoiceNumber: invNum,
-              customerId: rep.customerId || curr.customerId,
-              customerName: rep.customerName,
-              customerPhone: rep.customerPhone || curr.customerPhone
-            };
-            hasDebtSync = true;
-          }
         }
       }
     });
 
-    invoices.forEach(inv => {
+    nextInvoices.forEach(inv => {
       if (inv.debtAmount && inv.debtAmount > 0) {
         const existingIdx = nextDebts.findIndex(d => isInvoiceMatchDebt(inv, d));
 
@@ -655,30 +632,25 @@ export default function App() {
             createdAt: inv.createdAt,
             note: `Công nợ hóa đơn #${inv.invoiceNumber}` + (inv.note ? ` - ${inv.note}` : '')
           });
-          hasDebtSync = true;
-        } else {
-          const curr = nextDebts[existingIdx];
-          if (
-            curr.invoiceId !== inv.id ||
-            curr.invoiceNumber !== inv.invoiceNumber ||
-            curr.customerName !== inv.customerName ||
-            curr.customerPhone !== inv.customerPhone
-          ) {
-            nextDebts[existingIdx] = {
-              ...curr,
-              invoiceId: inv.id,
-              invoiceNumber: inv.invoiceNumber,
-              customerName: inv.customerName,
-              customerPhone: inv.customerPhone || curr.customerPhone
-            };
-            hasDebtSync = true;
-          }
         }
       }
     });
 
-    if (hasDebtSync) {
-      saveDebts(nextDebts);
+    // Run deep deduplication & 2-way sync across all debts/invoices/repairs
+    const { cleanedDebts, cleanedInvoices, cleanedRepairs, hasChanged } = deduplicateAndSyncDebts(
+      nextDebts,
+      nextInvoices,
+      repairs
+    );
+
+    if (hasChanged || cleanedDebts.length !== debts.length) {
+      saveDebts(cleanedDebts);
+    }
+    if (cleanedInvoices.some((inv, idx) => inv.debtAmount !== nextInvoices[idx]?.debtAmount)) {
+      saveInvoices(cleanedInvoices);
+    }
+    if (cleanedRepairs.some((rep, idx) => rep.debtAmount !== repairs[idx]?.debtAmount)) {
+      saveRepairs(cleanedRepairs);
     }
   }, [dbLoading, invoices, warranties, repairs, products, debts]);
 
@@ -1220,29 +1192,41 @@ export default function App() {
   const isInvoiceMatchDebt = (i: SalesInvoice, targetDebt: Debt) => {
     if (!i || !targetDebt) return false;
 
-    if (targetDebt.invoiceId) {
-      if (i.id === targetDebt.invoiceId || targetDebt.invoiceId.endsWith(i.id) || i.id.endsWith(targetDebt.invoiceId)) return true;
+    if (targetDebt.invoiceId && (i.id === targetDebt.invoiceId || targetDebt.invoiceId.endsWith(i.id) || i.id.endsWith(targetDebt.invoiceId))) {
+      return true;
     }
-    if (targetDebt.id && (targetDebt.id.includes(i.id) || i.id.includes(targetDebt.id))) return true;
+    if (targetDebt.id && (targetDebt.id.includes(i.id) || i.id.includes(targetDebt.id))) {
+      return true;
+    }
 
-    if (targetDebt.invoiceNumber && i.invoiceNumber && targetDebt.invoiceNumber === i.invoiceNumber) return true;
+    if (targetDebt.invoiceNumber && i.invoiceNumber && targetDebt.invoiceNumber === i.invoiceNumber) {
+      return true;
+    }
 
     const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
     const cleanInvNum = cleanDocNumber(i.invoiceNumber);
 
-    if (cleanDebtNum && cleanInvNum && (cleanDebtNum === cleanInvNum || cleanDebtNum.endsWith(cleanInvNum) || cleanInvNum.endsWith(cleanDebtNum))) return true;
+    if (cleanDebtNum && cleanInvNum && (cleanDebtNum === cleanInvNum || cleanDebtNum.endsWith(cleanInvNum) || cleanInvNum.endsWith(cleanDebtNum))) {
+      return true;
+    }
 
-    if (targetDebt.note && (i.invoiceNumber && targetDebt.note.includes(i.invoiceNumber) || (cleanInvNum && targetDebt.note.includes(cleanInvNum)))) return true;
-    if (i.note && (targetDebt.invoiceNumber && i.note.includes(targetDebt.invoiceNumber) || (cleanDebtNum && i.note.includes(cleanDebtNum)))) return true;
+    if (targetDebt.note && (i.invoiceNumber && targetDebt.note.includes(i.invoiceNumber) || (cleanInvNum && targetDebt.note.includes(cleanInvNum)))) {
+      return true;
+    }
+    if (i.note && (targetDebt.invoiceNumber && i.note.includes(targetDebt.invoiceNumber) || (cleanDebtNum && i.note.includes(cleanDebtNum)))) {
+      return true;
+    }
 
     if (targetDebt.customerId && i.customerId === targetDebt.customerId) {
-      if (i.debtAmount && i.debtAmount > 0) {
-        if (i.totalAmount === targetDebt.amount || i.debtAmount === targetDebt.remainingAmount || i.createdAt === targetDebt.createdAt) return true;
+      if (i.totalAmount === targetDebt.amount || i.createdAt === targetDebt.createdAt) {
+        return true;
       }
     }
 
     if (targetDebt.customerName && i.customerName && targetDebt.customerName.toLowerCase().trim() === i.customerName.toLowerCase().trim()) {
-      if (i.debtAmount && i.debtAmount > 0 && (i.totalAmount === targetDebt.amount || i.debtAmount === targetDebt.remainingAmount)) return true;
+      if (i.totalAmount === targetDebt.amount) {
+        return true;
+      }
     }
 
     return false;
@@ -1251,106 +1235,199 @@ export default function App() {
   const isRepairMatchDebt = (r: RepairTicket, targetDebt: Debt) => {
     if (!r || !targetDebt) return false;
 
-    if (targetDebt.invoiceId) {
-      if (targetDebt.invoiceId === `inv_repair_${r.id}` || targetDebt.invoiceId.includes(r.id)) return true;
+    if (targetDebt.invoiceId && (targetDebt.invoiceId === `inv_repair_${r.id}` || targetDebt.invoiceId.includes(r.id))) {
+      return true;
     }
-    if (targetDebt.id && targetDebt.id.includes(r.id)) return true;
+    if (targetDebt.id && targetDebt.id.includes(r.id)) {
+      return true;
+    }
 
     const cleanTicketNum = cleanDocNumber(r.ticketNumber);
     const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
 
-    if (targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.invoiceNumber.includes(cleanTicketNum)))) return true;
-    if (cleanDebtNum && cleanTicketNum && (cleanDebtNum === cleanTicketNum || cleanDebtNum.endsWith(cleanTicketNum) || cleanTicketNum.endsWith(cleanDebtNum))) return true;
+    if (targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.invoiceNumber.includes(cleanTicketNum)))) {
+      return true;
+    }
+    if (cleanDebtNum && cleanTicketNum && (cleanDebtNum === cleanTicketNum || cleanDebtNum.endsWith(cleanTicketNum) || cleanTicketNum.endsWith(cleanDebtNum))) {
+      return true;
+    }
 
-    if (targetDebt.note && (r.ticketNumber && targetDebt.note.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.note.includes(cleanTicketNum)))) return true;
+    if (targetDebt.note && (r.ticketNumber && targetDebt.note.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.note.includes(cleanTicketNum)))) {
+      return true;
+    }
 
     if (targetDebt.customerId && r.customerId === targetDebt.customerId) {
-      if (r.debtAmount && r.debtAmount > 0) {
-        if ((r.actualCost || r.estimatedCost) === targetDebt.amount || r.debtAmount === targetDebt.remainingAmount) return true;
+      if ((r.actualCost || r.estimatedCost) === targetDebt.amount) {
+        return true;
       }
     }
 
     if (targetDebt.customerName && r.customerName && targetDebt.customerName.toLowerCase().trim() === r.customerName.toLowerCase().trim()) {
-      if (r.debtAmount && r.debtAmount > 0 && ((r.actualCost || r.estimatedCost) === targetDebt.amount || r.debtAmount === targetDebt.remainingAmount)) return true;
+      if ((r.actualCost || r.estimatedCost) === targetDebt.amount) {
+        return true;
+      }
     }
 
     return false;
   };
 
+  const deduplicateAndSyncDebts = (
+    allDebts: Debt[],
+    allInvoices: SalesInvoice[],
+    allRepairs: RepairTicket[]
+  ): {
+    cleanedDebts: Debt[];
+    cleanedInvoices: SalesInvoice[];
+    cleanedRepairs: RepairTicket[];
+    hasChanged: boolean;
+  } => {
+    let hasChanged = false;
+    let nextInvoices = [...allInvoices];
+    let nextRepairs = [...allRepairs];
+
+    // 1. Group duplicate debts together
+    const debtGroups: Debt[][] = [];
+
+    allDebts.forEach(debt => {
+      const cleanNum = cleanDocNumber(debt.invoiceNumber);
+
+      const matchingGroup = debtGroups.find(group => {
+        return group.some(existing => {
+          if (existing.id === debt.id) return true;
+          if (debt.invoiceId && existing.invoiceId && (debt.invoiceId === existing.invoiceId || debt.invoiceId.endsWith(existing.invoiceId) || existing.invoiceId.endsWith(debt.invoiceId))) return true;
+
+          const existingClean = cleanDocNumber(existing.invoiceNumber);
+          if (cleanNum && existingClean && cleanNum === existingClean) return true;
+
+          if (debt.invoiceNumber && existing.invoiceNumber && debt.invoiceNumber === existing.invoiceNumber) return true;
+
+          if (debt.customerId && existing.customerId && debt.customerId === existing.customerId) {
+            if (debt.amount === existing.amount && debt.createdAt === existing.createdAt) return true;
+          }
+
+          return false;
+        });
+      });
+
+      if (matchingGroup) {
+        matchingGroup.push(debt);
+      } else {
+        debtGroups.push([debt]);
+      }
+    });
+
+    // 2. Consolidate each group
+    const consolidatedDebts: Debt[] = debtGroups.map(group => {
+      if (group.length === 1) return group[0];
+
+      hasChanged = true;
+
+      // Prefer paid record or record with payments or lowest remaining amount
+      group.sort((a, b) => {
+        if (a.remainingAmount !== b.remainingAmount) return a.remainingAmount - b.remainingAmount;
+        const aPayments = (a.payments || []).length;
+        const bPayments = (b.payments || []).length;
+        if (aPayments !== bPayments) return bPayments - aPayments;
+        return b.id.localeCompare(a.id);
+      });
+
+      const primary = group[0];
+
+      // Merge all unique payments
+      const allPayments: DebtPayment[] = [];
+      group.forEach(g => {
+        (g.payments || []).forEach(p => {
+          if (!allPayments.some(ap => ap.id === p.id || (ap.paidAt === p.paidAt && ap.amount === p.amount))) {
+            allPayments.push(p);
+          }
+        });
+      });
+
+      const totalPaidFromPayments = allPayments.reduce((sum, p) => sum + p.amount, 0);
+      const newRemaining = Math.max(0, primary.amount - totalPaidFromPayments);
+
+      return {
+        ...primary,
+        remainingAmount: newRemaining,
+        status: newRemaining === 0 ? ('paid' as const) : (totalPaidFromPayments > 0 ? ('partial' as const) : ('pending' as const)),
+        payments: allPayments
+      };
+    });
+
+    // 3. Two-way strict sync between consolidatedDebts and Invoices/Repairs
+    consolidatedDebts.forEach((debt, dIdx) => {
+      // Find matching invoice
+      const invIdx = nextInvoices.findIndex(i => isInvoiceMatchDebt(i, debt));
+      if (invIdx > -1) {
+        const inv = nextInvoices[invIdx];
+        if (inv.debtAmount === 0 && debt.remainingAmount > 0) {
+          consolidatedDebts[dIdx] = {
+            ...debt,
+            remainingAmount: 0,
+            status: 'paid'
+          };
+          hasChanged = true;
+        } else if (debt.remainingAmount === 0 && inv.debtAmount && inv.debtAmount > 0) {
+          nextInvoices[invIdx] = {
+            ...inv,
+            debtAmount: 0,
+            paymentMethod: inv.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : inv.paymentMethod
+          };
+          hasChanged = true;
+        } else if (inv.debtAmount !== debt.remainingAmount) {
+          nextInvoices[invIdx] = {
+            ...inv,
+            debtAmount: debt.remainingAmount
+          };
+          hasChanged = true;
+        }
+      }
+
+      // Find matching repair
+      const repIdx = nextRepairs.findIndex(r => isRepairMatchDebt(r, debt));
+      if (repIdx > -1) {
+        const rep = nextRepairs[repIdx];
+        if (rep.debtAmount === 0 && debt.remainingAmount > 0) {
+          consolidatedDebts[dIdx] = {
+            ...debt,
+            remainingAmount: 0,
+            status: 'paid'
+          };
+          hasChanged = true;
+        } else if (debt.remainingAmount === 0 && rep.debtAmount && rep.debtAmount > 0) {
+          nextRepairs[repIdx] = {
+            ...rep,
+            debtAmount: 0
+          };
+          hasChanged = true;
+        } else if (rep.debtAmount !== debt.remainingAmount) {
+          nextRepairs[repIdx] = {
+            ...rep,
+            debtAmount: debt.remainingAmount
+          };
+          hasChanged = true;
+        }
+      }
+    });
+
+    return {
+      cleanedDebts: consolidatedDebts,
+      cleanedInvoices: nextInvoices,
+      cleanedRepairs: nextRepairs,
+      hasChanged
+    };
+  };
+
   const handleUpdateDebts = (updatedDebts: Debt[]) => {
-    const removedDebts = debts.filter(d => !updatedDebts.some(ud => ud.id === d.id));
+    const { cleanedDebts, cleanedInvoices, cleanedRepairs } = deduplicateAndSyncDebts(
+      updatedDebts,
+      invoices,
+      repairs
+    );
 
-    let invoicesChanged = false;
-    let nextInvoices = [...invoices];
-
-    let repairsChanged = false;
-    let nextRepairs = [...repairs];
-
-    removedDebts.forEach(targetDebt => {
-      nextInvoices = nextInvoices.map(inv => {
-        if (isInvoiceMatchDebt(inv, targetDebt)) {
-          if (inv.debtAmount && inv.debtAmount > 0) {
-            invoicesChanged = true;
-            return {
-              ...inv,
-              debtAmount: 0,
-              paymentMethod: inv.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : inv.paymentMethod
-            };
-          }
-        }
-        return inv;
-      });
-
-      nextRepairs = nextRepairs.map(rep => {
-        if (isRepairMatchDebt(rep, targetDebt)) {
-          if (rep.debtAmount && rep.debtAmount > 0) {
-            repairsChanged = true;
-            return {
-              ...rep,
-              debtAmount: 0
-            };
-          }
-        }
-        return rep;
-      });
-    });
-
-    updatedDebts.forEach(d => {
-      nextInvoices = nextInvoices.map(inv => {
-        if (isInvoiceMatchDebt(inv, d)) {
-          if (inv.debtAmount !== d.remainingAmount) {
-            invoicesChanged = true;
-            return {
-              ...inv,
-              debtAmount: d.remainingAmount,
-              paymentMethod: d.remainingAmount === 0 && inv.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : inv.paymentMethod
-            };
-          }
-        }
-        return inv;
-      });
-
-      nextRepairs = nextRepairs.map(rep => {
-        if (isRepairMatchDebt(rep, d)) {
-          if (rep.debtAmount !== d.remainingAmount) {
-            repairsChanged = true;
-            return {
-              ...rep,
-              debtAmount: d.remainingAmount
-            };
-          }
-        }
-        return rep;
-      });
-    });
-
-    if (invoicesChanged) {
-      saveInvoices(nextInvoices);
-    }
-    if (repairsChanged) {
-      saveRepairs(nextRepairs);
-    }
-    saveDebts(updatedDebts);
+    saveInvoices(cleanedInvoices);
+    saveRepairs(cleanedRepairs);
+    saveDebts(cleanedDebts);
   };
 
   const handleDeleteDebt = (debtId: string) => {
