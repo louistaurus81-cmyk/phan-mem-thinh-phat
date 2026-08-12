@@ -162,7 +162,7 @@ export default function CustomerManager({
         {/* Master Directory Grid */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-[2rem] border-2 border-slate-200 bento-shadow overflow-hidden">
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 max-h-[calc(100vh-280px)] min-h-[450px] overflow-y-auto">
               {filteredCustomers.map(cust => {
                 const isActive = activeCustomerId === cust.id;
                 return (

@@ -774,7 +774,7 @@ export default function SalesManager({
               })}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
               {filteredProducts.map(prod => {
                 const inStockAmt = prod.hasImei ? imeis.filter(i => i.productId === prod.id && i.status === 'in_stock').length : prod.stock;
 
@@ -1181,17 +1181,17 @@ export default function SalesManager({
             />
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
             <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 text-slate-500 font-medium text-xs">
-                  <th className="pb-3 pt-1">Số Hoá Đơn</th>
-                  <th className="pb-3 pt-1">Khách Hàng</th>
-                  <th className="pb-3 pt-1">Sản Phẩm</th>
-                  <th className="pb-3 pt-1">Thời Gian</th>
-                  <th className="pb-3 pt-1">Phương Thức</th>
-                  <th className="pb-3 pt-1">Doanh Thu</th>
-                  <th className="pb-3 pt-1 text-right">Chi Tiết</th>
+              <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
+                <tr className="text-slate-500 font-bold text-xs">
+                  <th className="py-3 px-2">Số Hoá Đơn</th>
+                  <th className="py-3 px-2">Khách Hàng</th>
+                  <th className="py-3 px-2">Sản Phẩm</th>
+                  <th className="py-3 px-2">Thời Gian</th>
+                  <th className="py-3 px-2">Phương Thức</th>
+                  <th className="py-3 px-2">Doanh Thu</th>
+                  <th className="py-3 px-2 text-right">Chi Tiết</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1309,18 +1309,18 @@ export default function SalesManager({
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
             <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 text-slate-500 font-medium text-xs">
-                  <th className="pb-3">Mã SKU</th>
-                  <th className="pb-3">Tên Linh Kiện / Sản Phẩm</th>
-                  <th className="pb-3">Danh Mục</th>
-                  <th className="pb-3">Giá Nhập</th>
-                  <th className="pb-3">Giá Xuất</th>
-                  <th className="pb-3">Bảo Hành</th>
-                  <th className="pb-3">Tồn Kho</th>
-                  <th className="pb-3 text-right">Thao Tác</th>
+              <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
+                <tr className="text-slate-500 font-bold text-xs">
+                  <th className="py-3 px-2">Mã SKU</th>
+                  <th className="py-3 px-2">Tên Linh Kiện / Sản Phẩm</th>
+                  <th className="py-3 px-2">Danh Mục</th>
+                  <th className="py-3 px-2">Giá Nhập</th>
+                  <th className="py-3 px-2">Giá Xuất</th>
+                  <th className="py-3 px-2">Bảo Hành</th>
+                  <th className="py-3 px-2">Tồn Kho</th>
+                  <th className="py-3 px-2 text-right">Thao Tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

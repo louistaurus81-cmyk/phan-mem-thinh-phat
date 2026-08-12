@@ -718,7 +718,7 @@ export default function RepairManager({
         {/* Ticket list panel */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-[2rem] border-2 border-slate-200 bento-shadow overflow-hidden">
-            <div className="divide-y divide-slate-50">
+            <div className="divide-y divide-slate-50 max-h-[calc(100vh-280px)] min-h-[450px] overflow-y-auto">
               {filteredRepairs.map(rep => {
                 const isActive = activeTicketId === rep.id;
                 return (

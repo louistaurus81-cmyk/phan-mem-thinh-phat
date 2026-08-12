@@ -483,10 +483,10 @@ export default function DebtManager({
         </div>
 
         {/* Debts Table */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
           <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 tracking-wider border-b border-slate-100">
+            <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
+              <tr className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
                 <th className="py-3 px-4">Hóa Đơn / Mã GD</th>
                 <th className="py-3 px-4">Khách Hàng</th>
                 <th className="py-3 px-4">Nợ Ban Đầu</th>

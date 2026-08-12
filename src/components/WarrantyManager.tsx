@@ -606,15 +606,15 @@ export default function WarrantyManager({
         </div>
 
         {/* Table Ledger list */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
           <table className="w-full text-left text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 text-slate-400 font-semibold text-xs">
-                <th className="pb-3">Sản Phẩm & Thông Số Serial</th>
-                <th className="pb-3">Khách Hàng Ký</th>
-                <th className="pb-3">Hạn Bảo Hành</th>
-                <th className="pb-3">Thời Hạn Thẻ</th>
-                <th className="pb-3 text-right">Trạng Thái Thẩm Định</th>
+            <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
+              <tr className="text-slate-500 font-bold text-xs">
+                <th className="py-3 px-2">Sản Phẩm & Thông Số Serial</th>
+                <th className="py-3 px-2">Khách Hàng Ký</th>
+                <th className="py-3 px-2">Hạn Bảo Hành</th>
+                <th className="py-3 px-2">Thời Hạn Thẻ</th>
+                <th className="py-3 px-2 text-right">Trạng Thái Thẩm Định</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
