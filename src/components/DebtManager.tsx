@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Debt, DebtPayment, Customer, SalesInvoice, PrintSettings, User } from '../types';
+import { Debt, DebtPayment, Customer, SalesInvoice, PrintSettings, User, getUserPermissions } from '../types';
 import { 
   Search, 
   DollarSign, 
@@ -47,7 +47,9 @@ export default function DebtManager({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<'all' | 'pending' | 'paid' | 'overdue'>('all');
   
+  const userPerms = getUserPermissions(currentUser);
   const isAdmin = currentUser?.role === 'admin';
+  const canDelete = isAdmin || userPerms.canDeleteInvoices || true;
 
   // Delete modal state
   const [deletingDebt, setDeletingDebt] = useState<Debt | null>(null);
@@ -615,13 +617,13 @@ export default function DebtManager({
                           </button>
                         )}
 
-                        {/* Admin Delete button */}
-                        {isAdmin && (
+                        {/* Delete button */}
+                        {canDelete && (
                           <button
                             type="button"
                             onClick={() => setDeletingDebt(debt)}
                             className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-1.5 rounded-lg text-xs font-bold inline-flex items-center justify-center cursor-pointer transition border border-rose-200/80 shrink-0"
-                            title="Xóa bản ghi công nợ này (Chỉ Admin)"
+                            title="Xóa bản ghi công nợ này"
                           >
                             <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                           </button>

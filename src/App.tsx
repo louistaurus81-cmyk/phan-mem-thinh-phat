@@ -638,13 +638,7 @@ export default function App() {
 
     invoices.forEach(inv => {
       if (inv.debtAmount && inv.debtAmount > 0) {
-        const cleanInvNum = inv.invoiceNumber ? inv.invoiceNumber.replace(/^HD-/, '') : '';
-        const existingIdx = nextDebts.findIndex(d => 
-          (d.invoiceId && d.invoiceId === inv.id) ||
-          (d.invoiceNumber && d.invoiceNumber === inv.invoiceNumber) ||
-          (d.invoiceNumber && d.invoiceNumber.replace(/^HD-/, '') === cleanInvNum) ||
-          (d.note && inv.invoiceNumber && d.note.includes(inv.invoiceNumber))
-        );
+        const existingIdx = nextDebts.findIndex(d => isInvoiceMatchDebt(inv, d));
 
         if (existingIdx === -1) {
           nextDebts.unshift({
@@ -1213,21 +1207,33 @@ export default function App() {
     }
   };
 
+  const cleanDocNumber = (str?: string) => {
+    if (!str) return '';
+    return str
+      .replace(/^#+/, '')
+      .trim()
+      .replace(/^(HD|REP|PC|HD-REP|HD-PC|BUILD|PC-BUILD)-?/i, '')
+      .replace(/^#+/, '')
+      .trim();
+  };
+
   const isInvoiceMatchDebt = (i: SalesInvoice, targetDebt: Debt) => {
+    if (!i || !targetDebt) return false;
+
     if (targetDebt.invoiceId) {
       if (i.id === targetDebt.invoiceId || targetDebt.invoiceId.endsWith(i.id) || i.id.endsWith(targetDebt.invoiceId)) return true;
     }
-    if (targetDebt.id && targetDebt.id.includes(i.id)) return true;
+    if (targetDebt.id && (targetDebt.id.includes(i.id) || i.id.includes(targetDebt.id))) return true;
 
     if (targetDebt.invoiceNumber && i.invoiceNumber && targetDebt.invoiceNumber === i.invoiceNumber) return true;
 
-    const cleanDebtNum = targetDebt.invoiceNumber ? targetDebt.invoiceNumber.replace(/^(HD|REP|HD-REP)-?/, '').trim() : '';
-    const cleanInvNum = i.invoiceNumber ? i.invoiceNumber.replace(/^(HD|REP|HD-REP)-?/, '').trim() : '';
+    const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
+    const cleanInvNum = cleanDocNumber(i.invoiceNumber);
+
     if (cleanDebtNum && cleanInvNum && (cleanDebtNum === cleanInvNum || cleanDebtNum.endsWith(cleanInvNum) || cleanInvNum.endsWith(cleanDebtNum))) return true;
 
-    if (targetDebt.note && i.invoiceNumber && targetDebt.note.includes(i.invoiceNumber)) return true;
-    if (i.note && targetDebt.invoiceNumber && i.note.includes(targetDebt.invoiceNumber)) return true;
-    if (cleanInvNum && targetDebt.note && targetDebt.note.includes(cleanInvNum)) return true;
+    if (targetDebt.note && (i.invoiceNumber && targetDebt.note.includes(i.invoiceNumber) || (cleanInvNum && targetDebt.note.includes(cleanInvNum)))) return true;
+    if (i.note && (targetDebt.invoiceNumber && i.note.includes(targetDebt.invoiceNumber) || (cleanDebtNum && i.note.includes(cleanDebtNum)))) return true;
 
     if (targetDebt.customerId && i.customerId === targetDebt.customerId) {
       if (i.debtAmount && i.debtAmount > 0) {
@@ -1243,18 +1249,20 @@ export default function App() {
   };
 
   const isRepairMatchDebt = (r: RepairTicket, targetDebt: Debt) => {
+    if (!r || !targetDebt) return false;
+
     if (targetDebt.invoiceId) {
       if (targetDebt.invoiceId === `inv_repair_${r.id}` || targetDebt.invoiceId.includes(r.id)) return true;
     }
     if (targetDebt.id && targetDebt.id.includes(r.id)) return true;
 
-    const cleanTicketNum = r.ticketNumber ? r.ticketNumber.replace(/^REP-/, '').trim() : '';
-    const cleanDebtNum = targetDebt.invoiceNumber ? targetDebt.invoiceNumber.replace(/^(HD|REP|HD-REP)-?/, '').trim() : '';
+    const cleanTicketNum = cleanDocNumber(r.ticketNumber);
+    const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
 
-    if (targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber) || targetDebt.invoiceNumber.includes(cleanTicketNum))) return true;
+    if (targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.invoiceNumber.includes(cleanTicketNum)))) return true;
     if (cleanDebtNum && cleanTicketNum && (cleanDebtNum === cleanTicketNum || cleanDebtNum.endsWith(cleanTicketNum) || cleanTicketNum.endsWith(cleanDebtNum))) return true;
 
-    if (targetDebt.note && (r.ticketNumber && targetDebt.note.includes(r.ticketNumber) || cleanTicketNum && targetDebt.note.includes(cleanTicketNum))) return true;
+    if (targetDebt.note && (r.ticketNumber && targetDebt.note.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.note.includes(cleanTicketNum)))) return true;
 
     if (targetDebt.customerId && r.customerId === targetDebt.customerId) {
       if (r.debtAmount && r.debtAmount > 0) {
