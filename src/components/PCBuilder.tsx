@@ -820,7 +820,7 @@ export default function PCBuilder({
               <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-sm">SLOT SYSTEM: {DEFAULT_SLOTS.length}</span>
             </div>
 
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 max-h-[calc(100vh-280px)] min-h-[350px] overflow-y-auto">
               {build.map(item => {
                 const isSelected = !!item.productName;
                 return (

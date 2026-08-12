@@ -175,7 +175,7 @@ export default function SupplierManager({ suppliers, onUpdateSuppliers, products
               </div>
             </div>
 
-            <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
+            <div className="divide-y divide-slate-100 max-h-[calc(100vh-280px)] min-h-[350px] overflow-y-auto">
               {filteredSuppliers.map(sup => {
                 const isSelected = selectedSupplierId === sup.id;
                 const stats = supplierStats[sup.id] || { productCount: 0, totalCostValue: 0 };

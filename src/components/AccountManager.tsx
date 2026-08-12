@@ -172,7 +172,7 @@ export default function AccountManager({
     <div className="space-y-6">
       
       {/* 1. Header Banner */}
-      <div className="bg-slate-900 rounded-[2.5rem] border-2 border-slate-800 p-8 text-white relative overflow-hidden bento-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      <div className="bg-slate-900 rounded-3xl border-2 border-slate-800 p-5 md:p-6 text-white relative overflow-hidden bento-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="space-y-2 relative z-10">
           <span className="text-[10px] uppercase font-bold tracking-widest text-blue-400 bg-blue-400/10 border border-blue-500/20 px-3 py-1 rounded-full">
@@ -247,7 +247,7 @@ export default function AccountManager({
             </span>
           </div>
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 max-h-[calc(100vh-280px)] min-h-[350px] overflow-y-auto pr-1">
             {users.map(u => {
               const isCurrentUser = currentUser ? u.id === currentUser.id : false;
               const perms = getUserPermissions(u);

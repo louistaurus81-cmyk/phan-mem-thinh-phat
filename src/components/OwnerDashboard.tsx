@@ -224,7 +224,7 @@ export default function OwnerDashboard({
     <div className="space-y-6">
       
       {/* 1. Header Hero Banner */}
-      <div className="bg-slate-900 rounded-[2.5rem] border-2 border-slate-800 p-8 text-white relative overflow-hidden bento-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      <div className="bg-slate-900 rounded-3xl border-2 border-slate-800 p-5 md:p-6 text-white relative overflow-hidden bento-shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="space-y-2 relative z-10">
           <div className="flex items-center gap-2">
@@ -489,7 +489,7 @@ export default function OwnerDashboard({
             </p>
           </div>
         ) : (
-          <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+          <div className="space-y-2.5 max-h-[calc(100vh-320px)] min-h-[300px] overflow-y-auto pr-1">
             {activities
               .filter(act => {
                 if (logFilterCategory === 'unread' && act.readByOwner) return false;

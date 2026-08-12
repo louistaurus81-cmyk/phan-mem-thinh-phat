@@ -360,26 +360,26 @@ export default function WarrantyManager({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       
       {/* 1. IMMERSIVE PORTAL GATE */}
-      <div className="bg-slate-900 rounded-[2.5rem] border-2 border-slate-800 p-8 md:p-12 text-white bento-shadow relative overflow-hidden flex flex-col items-center justify-center text-center">
+      <div className="bg-slate-900 rounded-3xl border-2 border-slate-800 p-5 md:p-6 text-white bento-shadow relative overflow-hidden flex flex-col items-center justify-center text-center">
         {/* Subtle decorative background spots */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="max-w-2xl w-full space-y-6 z-10">
-          <div className="mx-auto bg-indigo-500/20 w-16 h-16 rounded-2xl flex items-center justify-center border border-indigo-500/30">
-            <ShieldCheck className="w-8 h-8 text-indigo-400" />
+        <div className="max-w-2xl w-full space-y-3.5 z-10">
+          <div className="flex items-center justify-center gap-2">
+            <div className="bg-indigo-500/20 w-10 h-10 rounded-xl flex items-center justify-center border border-indigo-500/30">
+              <ShieldCheck className="w-5 h-5 text-indigo-400" />
+            </div>
+            <h2 className="text-lg md:text-xl font-extrabold tracking-tight">CỔNG TRA CỨU BẢO HÀNH ĐIỆN TỬ</h2>
           </div>
-          <div>
-            <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">CỔNG TRA CỨU BẢO HÀNH ĐIỆN TỬ</h2>
-            <p className="text-slate-300 text-sm mt-2 max-w-md mx-auto">
-              Nhập mã Serial, IMEI hoặc mã bảo hành sản phẩm của bạn để thẩm định tình trạng hỗ trợ kỹ thuật trực tiếp.
-            </p>
-          </div>
+          <p className="text-slate-300 text-xs max-w-md mx-auto">
+            Nhập mã Serial, IMEI hoặc mã bảo hành sản phẩm để thẩm định tình trạng hỗ trợ kỹ thuật trực tiếp.
+          </p>
 
-          <form onSubmit={handlePortalCheck} className="flex flex-col sm:flex-row gap-3 w-full bg-slate-800/60 p-2 rounded-2xl border border-slate-700">
+          <form onSubmit={handlePortalCheck} className="flex flex-col sm:flex-row gap-2.5 w-full bg-slate-800/60 p-1.5 rounded-2xl border border-slate-700">
             <input 
               id="portal-serial-input"
               type="text"
@@ -389,12 +389,12 @@ export default function WarrantyManager({
                 setPortalSearch(e.target.value);
                 setSearched(false);
               }}
-              className="flex-1 bg-transparent px-4 py-3 text-sm focus:outline-hidden text-white rounded-xl placeholder-slate-400 font-mono tracking-wider"
+              className="flex-1 bg-transparent px-3.5 py-2 text-xs focus:outline-hidden text-white rounded-xl placeholder-slate-400 font-mono tracking-wider"
             />
             <button 
               id="btn-portal-search"
               type="submit"
-              className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold px-6 py-3 rounded-xl transition cursor-pointer"
+              className="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-semibold px-5 py-2 rounded-xl transition cursor-pointer"
             >
               Kiểm Tra Ngay
             </button>
@@ -606,7 +606,7 @@ export default function WarrantyManager({
         </div>
 
         {/* Table Ledger list */}
-        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[400px]">
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-380px)] min-h-[250px]">
           <table className="w-full text-left text-sm border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 shadow-2xs">
               <tr className="text-slate-500 font-bold text-xs">

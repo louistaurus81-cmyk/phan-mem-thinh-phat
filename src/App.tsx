@@ -1852,7 +1852,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row antialiased p-4 md:p-6 gap-6">
+    <div className="min-h-screen md:h-screen md:max-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row antialiased p-4 md:p-6 gap-6 md:overflow-hidden">
       
       {/* 1. MOBILE BRAND HEADER CARD (Bento style, only visible on mobile) */}
       <div className="flex md:hidden items-center justify-between bg-slate-900 text-white rounded-2xl border border-slate-850 p-4 shadow-md">
@@ -1986,9 +1986,9 @@ export default function App() {
       </AnimatePresence>
 
       {/* 2. PRIMARY SYSTEM DESKTOP SIDEBAR RAIL (Only visible on screens md and up) */}
-      <nav className="hidden md:flex w-full md:w-64 bg-slate-900 text-white shrink-0 rounded-[2rem] border-2 border-slate-850 p-2 flex-col justify-between bento-shadow">
-        <div className="p-5">
-          <div className="flex items-center gap-3 mb-8 px-2 py-1">
+      <nav className="hidden md:flex w-full md:w-64 h-full bg-slate-900 text-white shrink-0 rounded-[2rem] border-2 border-slate-850 p-2 flex-col justify-between bento-shadow overflow-hidden">
+        <div className="p-4 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="flex items-center gap-3 mb-6 px-2 py-1 shrink-0">
             <div className="p-2 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center shrink-0">
               <TPLogo className="w-8 h-8 shrink-0" />
             </div>
@@ -1999,7 +1999,7 @@ export default function App() {
           </div>
  
           {/* Navigation Button Links */}
-          <div className="space-y-2">
+          <div className="space-y-1.5 flex-1 overflow-y-auto pr-1">
             {[
               { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
               { id: 'owner', label: 'Bảng Chủ Shop 👑', icon: Crown },
@@ -2020,7 +2020,7 @@ export default function App() {
                   id={`nav-tab-${tab.id}`}
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-[11px] font-bold tracking-wide transition uppercase cursor-pointer ${
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[11px] font-bold tracking-wide transition uppercase cursor-pointer ${
                     isActive 
                       ? 'bg-blue-600 text-white shadow-md border border-blue-500' 
                       : 'text-slate-400 hover:bg-slate-850 hover:text-slate-100'
@@ -2035,8 +2035,8 @@ export default function App() {
         </div>
  
         {/* Footer Current User Session with Log Out */}
-        <div className="p-4 border-t border-slate-850 space-y-3">
-          <div className="bg-slate-850 p-3 rounded-2xl flex items-center justify-between gap-2 border border-slate-800">
+        <div className="p-3 border-t border-slate-850 space-y-2 shrink-0">
+          <div className="bg-slate-850 p-2.5 rounded-2xl flex items-center justify-between gap-2 border border-slate-800">
             <div className="min-w-0">
               <p className="font-extrabold text-[11px] text-slate-100 truncate">{currentUser?.fullName}</p>
               <p className="text-[9px] font-extrabold mt-0.5 text-blue-400 uppercase tracking-widest leading-none">
@@ -2063,7 +2063,7 @@ export default function App() {
       </nav>
  
       {/* 3. PRIMARY MAIN CONTENT STAGE */}
-      <main className="flex-1 overflow-y-auto px-2 py-4 md:p-2">
+      <main className="flex-1 h-full min-h-0 overflow-y-auto px-2 py-4 md:p-2 flex flex-col">
 
         
         {/* Workspace dynamic title bar */}
