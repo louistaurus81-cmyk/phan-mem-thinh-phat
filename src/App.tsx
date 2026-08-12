@@ -1011,19 +1011,20 @@ export default function App() {
     saveInvoices(nextInvoices);
 
     // Sync linked debt if exists
-    const existingDebtIdx = debts.findIndex(d => 
-      (d.invoiceId && d.invoiceId === updatedInvoice.id) || 
-      (d.invoiceNumber && d.invoiceNumber === updatedInvoice.invoiceNumber) || 
-      (d.customerId === updatedInvoice.customerId && d.createdAt === updatedInvoice.createdAt)
-    );
+    const existingDebtIdx = debts.findIndex(d => isInvoiceMatchDebt(updatedInvoice, d));
 
     if (updatedInvoice.debtAmount && updatedInvoice.debtAmount > 0) {
       if (existingDebtIdx > -1) {
         const nextDebts = [...debts];
+        const existing = nextDebts[existingDebtIdx];
+        const totalPaid = (existing.payments || []).reduce((sum, p) => sum + p.amount, 0);
+        const newRemaining = Math.max(0, updatedInvoice.debtAmount - totalPaid);
+
         nextDebts[existingDebtIdx] = {
-          ...nextDebts[existingDebtIdx],
+          ...existing,
           amount: updatedInvoice.totalAmount,
-          remainingAmount: updatedInvoice.debtAmount,
+          remainingAmount: newRemaining,
+          status: newRemaining === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending'),
           customerName: updatedInvoice.customerName,
           customerPhone: updatedInvoice.customerPhone,
           note: `Công nợ hóa đơn #${updatedInvoice.invoiceNumber}` + (updatedInvoice.note ? ` - ${updatedInvoice.note}` : '')
@@ -1047,7 +1048,13 @@ export default function App() {
         saveDebts([...debts, newDebt]);
       }
     } else if (existingDebtIdx > -1) {
-      const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
+      const nextDebts = [...debts];
+      const existing = nextDebts[existingDebtIdx];
+      nextDebts[existingDebtIdx] = {
+        ...existing,
+        remainingAmount: 0,
+        status: 'paid'
+      };
       saveDebts(nextDebts);
     }
 
@@ -1199,15 +1206,20 @@ export default function App() {
       return true;
     }
 
-    if (targetDebt.invoiceNumber && i.invoiceNumber && targetDebt.invoiceNumber === i.invoiceNumber) {
-      return true;
-    }
-
     const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
     const cleanInvNum = cleanDocNumber(i.invoiceNumber);
 
-    if (cleanDebtNum && cleanInvNum && (cleanDebtNum === cleanInvNum || cleanDebtNum.endsWith(cleanInvNum) || cleanInvNum.endsWith(cleanDebtNum))) {
-      return true;
+    // If both have document numbers, check if clean numbers match. If both exist and differ, DO NOT match!
+    if (cleanDebtNum && cleanInvNum) {
+      if (cleanDebtNum === cleanInvNum || cleanDebtNum.endsWith(cleanInvNum) || cleanInvNum.endsWith(cleanDebtNum)) {
+        return true;
+      }
+      return false; // Different document numbers MUST NOT match!
+    }
+
+    if (targetDebt.invoiceNumber && i.invoiceNumber) {
+      if (targetDebt.invoiceNumber === i.invoiceNumber) return true;
+      return false;
     }
 
     if (targetDebt.note && (i.invoiceNumber && targetDebt.note.includes(i.invoiceNumber) || (cleanInvNum && targetDebt.note.includes(cleanInvNum)))) {
@@ -1217,14 +1229,9 @@ export default function App() {
       return true;
     }
 
+    // Only if document numbers are missing on one or both, fallback to customer + totalAmount + createdAt match
     if (targetDebt.customerId && i.customerId === targetDebt.customerId) {
-      if (i.totalAmount === targetDebt.amount || i.createdAt === targetDebt.createdAt) {
-        return true;
-      }
-    }
-
-    if (targetDebt.customerName && i.customerName && targetDebt.customerName.toLowerCase().trim() === i.customerName.toLowerCase().trim()) {
-      if (i.totalAmount === targetDebt.amount) {
+      if (i.totalAmount === targetDebt.amount && i.createdAt === targetDebt.createdAt) {
         return true;
       }
     }
@@ -1245,10 +1252,14 @@ export default function App() {
     const cleanTicketNum = cleanDocNumber(r.ticketNumber);
     const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
 
-    if (targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.invoiceNumber.includes(cleanTicketNum)))) {
-      return true;
+    if (cleanDebtNum && cleanTicketNum) {
+      if (cleanDebtNum === cleanTicketNum || cleanDebtNum.endsWith(cleanTicketNum) || cleanTicketNum.endsWith(cleanDebtNum)) {
+        return true;
+      }
+      return false; // Different ticket/debt numbers MUST NOT match!
     }
-    if (cleanDebtNum && cleanTicketNum && (cleanDebtNum === cleanTicketNum || cleanDebtNum.endsWith(cleanTicketNum) || cleanTicketNum.endsWith(cleanDebtNum))) {
+
+    if (targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber))) {
       return true;
     }
 
@@ -1257,13 +1268,7 @@ export default function App() {
     }
 
     if (targetDebt.customerId && r.customerId === targetDebt.customerId) {
-      if ((r.actualCost || r.estimatedCost) === targetDebt.amount) {
-        return true;
-      }
-    }
-
-    if (targetDebt.customerName && r.customerName && targetDebt.customerName.toLowerCase().trim() === r.customerName.toLowerCase().trim()) {
-      if ((r.actualCost || r.estimatedCost) === targetDebt.amount) {
+      if ((r.actualCost || r.estimatedCost) === targetDebt.amount && r.createdAt === targetDebt.createdAt) {
         return true;
       }
     }
@@ -1294,14 +1299,19 @@ export default function App() {
       const matchingGroup = debtGroups.find(group => {
         return group.some(existing => {
           if (existing.id === debt.id) return true;
-          if (debt.invoiceId && existing.invoiceId && (debt.invoiceId === existing.invoiceId || debt.invoiceId.endsWith(existing.invoiceId) || existing.invoiceId.endsWith(debt.invoiceId))) return true;
 
           const existingClean = cleanDocNumber(existing.invoiceNumber);
-          if (cleanNum && existingClean && cleanNum === existingClean) return true;
+
+          // If both have document numbers, check if clean numbers match. If both exist and differ, DO NOT group!
+          if (cleanNum && existingClean) {
+            return cleanNum === existingClean || cleanNum.endsWith(existingClean) || existingClean.endsWith(cleanNum);
+          }
+
+          if (debt.invoiceId && existing.invoiceId && (debt.invoiceId === existing.invoiceId || debt.invoiceId.endsWith(existing.invoiceId) || existing.invoiceId.endsWith(debt.invoiceId))) return true;
 
           if (debt.invoiceNumber && existing.invoiceNumber && debt.invoiceNumber === existing.invoiceNumber) return true;
 
-          if (debt.customerId && existing.customerId && debt.customerId === existing.customerId) {
+          if (!cleanNum && !existingClean && debt.customerId && existing.customerId && debt.customerId === existing.customerId) {
             if (debt.amount === existing.amount && debt.createdAt === existing.createdAt) return true;
           }
 
