@@ -130,6 +130,7 @@ export default function App() {
   
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAutoLoggedOut, setIsAutoLoggedOut] = useState(false);
 
   const [dbLoading, setDbLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -201,11 +202,30 @@ export default function App() {
 
   // 1. Initial State Loading from Express Server API with LocalStorage safeguard
   useEffect(() => {
+    const INACTIVITY_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 hours in ms
     const storedCurrent = localStorage.getItem('thinhphat_v2_current_user');
+    const storedLastAct = localStorage.getItem('thinhphat_v2_last_activity');
+    const now = Date.now();
+
     if (storedCurrent) {
-      try {
-        setCurrentUser(JSON.parse(storedCurrent));
-      } catch (err) {}
+      let expired = false;
+      if (storedLastAct) {
+        const lastActTime = parseInt(storedLastAct, 10);
+        if (!isNaN(lastActTime) && now - lastActTime >= INACTIVITY_TIMEOUT_MS) {
+          expired = true;
+        }
+      }
+      if (expired) {
+        localStorage.removeItem('thinhphat_v2_current_user');
+        localStorage.removeItem('thinhphat_v2_last_activity');
+        setIsAutoLoggedOut(true);
+        setCurrentUser(null);
+      } else {
+        try {
+          setCurrentUser(JSON.parse(storedCurrent));
+          localStorage.setItem('thinhphat_v2_last_activity', now.toString());
+        } catch (err) {}
+      }
     }
     loadCentralData();
 
@@ -760,18 +780,73 @@ export default function App() {
     logActivity('user', 'Xóa tài khoản nhân viên', `Tài khoản: ${targetUser ? targetUser.fullName : id}`, undefined, 'danger');
   };
 
+  // Auto logout after 4 hours of inactivity
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const INACTIVITY_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 hours in ms
+    let lastSaveTime = Date.now();
+
+    const handleUserActivity = () => {
+      const now = Date.now();
+      // Throttle localStorage updates to once every 10 seconds to avoid performance degradation
+      if (now - lastSaveTime > 10000) {
+        lastSaveTime = now;
+        localStorage.setItem('thinhphat_v2_last_activity', now.toString());
+      }
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    activityEvents.forEach(evt => {
+      window.addEventListener(evt, handleUserActivity, { passive: true });
+    });
+
+    const checkInactivity = () => {
+      const storedLastAct = localStorage.getItem('thinhphat_v2_last_activity');
+      if (storedLastAct) {
+        const lastActTime = parseInt(storedLastAct, 10);
+        if (!isNaN(lastActTime) && Date.now() - lastActTime >= INACTIVITY_TIMEOUT_MS) {
+          setIsAutoLoggedOut(true);
+          handleLogout();
+        }
+      }
+    };
+
+    // Check inactivity every 30 seconds
+    const intervalId = setInterval(checkInactivity, 30000);
+
+    // Also check on tab focus/visibility
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkInactivity();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      activityEvents.forEach(evt => {
+        window.removeEventListener(evt, handleUserActivity);
+      });
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentUser]);
+
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    setIsAutoLoggedOut(false);
     localStorage.setItem('thinhphat_v2_current_user', JSON.stringify(user));
+    localStorage.setItem('thinhphat_v2_last_activity', Date.now().toString());
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('thinhphat_v2_current_user');
+    localStorage.removeItem('thinhphat_v2_last_activity');
   };
 
   if (!currentUser) {
-    return <Login users={users} onLoginSuccess={handleLogin} />;
+    return <Login users={users} onLoginSuccess={handleLogin} isAutoLoggedOut={isAutoLoggedOut} />;
   }
 
   // State manipulation triggers

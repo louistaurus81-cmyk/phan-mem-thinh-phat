@@ -6,9 +6,10 @@ import TPLogo from './TPLogo';
 interface LoginProps {
   users: User[];
   onLoginSuccess: (user: User) => void;
+  isAutoLoggedOut?: boolean;
 }
 
-export default function Login({ users, onLoginSuccess }: LoginProps) {
+export default function Login({ users, onLoginSuccess, isAutoLoggedOut }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -49,6 +50,13 @@ export default function Login({ users, onLoginSuccess }: LoginProps) {
           <h2 className="text-2xl font-extrabold tracking-tight text-white uppercase">THỊNH PHÁT COMPUTER</h2>
           <p className="text-xs text-slate-400 max-w-xs mx-auto">Vui lòng đăng nhập bằng mã tài khoản nhân viên để tiếp quản hệ thống</p>
         </div>
+
+        {/* Auto Logout Callout */}
+        {isAutoLoggedOut && !errorMsg && (
+          <div className="bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold px-4 py-3 rounded-xl flex items-center gap-2">
+            <span>⏱️ Phiên làm việc đã tự động kết thúc do không hoạt động quá 4 giờ. Vui lòng đăng nhập lại!</span>
+          </div>
+        )}
 
         {/* Error Callout */}
         {errorMsg && (
