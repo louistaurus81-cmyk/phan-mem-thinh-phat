@@ -599,7 +599,7 @@ export default function RepairManager({
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       note: note.trim() || undefined,
-      processedBy: processedBy || currentUser.fullName
+      processedBy: processedBy || currentUser?.fullName || 'Nhân viên'
     };
 
     onAddRepair(newTicket);

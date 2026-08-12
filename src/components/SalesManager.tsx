@@ -514,7 +514,7 @@ export default function SalesManager({
       paymentMethod,
       createdAt: new Date().toISOString(),
       note: (invoiceNote.trim() || '') + (discountPercent > 0 ? ` [Chiết khấu hoá đơn giảm ${discountPercent}%]` : '') + (isDebt ? ` [Ghi nợ: ${formatVND(debtAmount)}, Hạn nợ: ${debtDueDate}]` : ''),
-      processedBy: processedBy || currentUser.fullName,
+      processedBy: processedBy || currentUser?.fullName || 'Nhân viên',
       debtAmount: isDebt ? debtAmount : undefined,
       debtDueDate: isDebt ? debtDueDate : undefined
     };
@@ -685,7 +685,9 @@ export default function SalesManager({
                 warrantyMonths: 12,
                 category: categories[0]?.name || '',
                 location: '',
-                minStock: 5
+                minStock: 5,
+                hasImei: false,
+                supplierId: ''
               });
               setShowAddProductModal(true);
             }}

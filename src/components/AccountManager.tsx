@@ -33,7 +33,7 @@ export default function AccountManager({
   onUpdateUser,
   onDeleteUser
 }: AccountManagerProps) {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin';
 
   // Form states for creating a new user
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -207,29 +207,29 @@ export default function AccountManager({
           <div className="space-y-4">
             <div className="flex justify-center flex-col items-center py-6 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
               <div className="w-16 h-16 rounded-full bg-slate-900 border-2 border-blue-500 flex items-center justify-center text-white text-lg font-bold">
-                {currentUser.fullName.split(' ').pop()?.slice(0, 2).toUpperCase() || 'ST'}
+                {currentUser?.fullName?.split(' ').pop()?.slice(0, 2).toUpperCase() || 'ST'}
               </div>
-              <h4 className="font-extrabold text-slate-900">{currentUser.fullName}</h4>
+              <h4 className="font-extrabold text-slate-900">{currentUser?.fullName || 'Người dùng'}</h4>
               <span className={`text-[10px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider text-white bg-slate-900`}>
-                {currentUser.role === 'admin' && '👑 Chủ cửa hàng'}
-                {currentUser.role === 'sales' && '💸 Nhân viên bán hàng'}
-                {currentUser.role === 'technician' && '🛠️ Nhân viên kỹ thuật'}
+                {currentUser?.role === 'admin' && '👑 Chủ cửa hàng'}
+                {currentUser?.role === 'sales' && '💸 Nhân viên bán hàng'}
+                {currentUser?.role === 'technician' && '🛠️ Nhân viên kỹ thuật'}
               </span>
             </div>
 
             <div className="space-y-2 text-xs">
               <div className="flex justify-between py-2 border-b border-slate-50">
                 <span className="text-slate-400 font-bold">Tên người dùng:</span>
-                <span className="text-slate-800 font-bold font-mono">{currentUser.username}</span>
+                <span className="text-slate-800 font-bold font-mono">{currentUser?.username || '---'}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-50">
                 <span className="text-slate-400 font-bold">Số điện thoại:</span>
-                <span className="text-slate-800 font-bold">{currentUser.phone || 'Chưa cung cấp'}</span>
+                <span className="text-slate-800 font-bold">{currentUser?.phone || 'Chưa cung cấp'}</span>
               </div>
               <div className="flex justify-between py-2">
                 <span className="text-slate-400 font-bold">Quyền hạn hệ thống:</span>
                 <span className="text-emerald-600 font-bold">
-                  {currentUser.role === 'admin' ? 'Toàn quyền Admin' : 'Đã phân quyền cụ thể'}
+                  {currentUser?.role === 'admin' ? 'Toàn quyền Admin' : 'Đã phân quyền cụ thể'}
                 </span>
               </div>
             </div>
@@ -249,7 +249,7 @@ export default function AccountManager({
 
           <div className="divide-y divide-slate-100">
             {users.map(u => {
-              const isCurrentUser = u.id === currentUser.id;
+              const isCurrentUser = currentUser ? u.id === currentUser.id : false;
               const perms = getUserPermissions(u);
 
               return (

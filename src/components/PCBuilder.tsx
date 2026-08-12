@@ -1603,7 +1603,7 @@ export default function PCBuilder({
                   <h3 className="text-[1.25em] font-black uppercase" style={{ color: printSettings?.primaryColor || '#bd1e24' }}>
                     {customQuoteTitle || (savedBuildInvoice.invoiceNumber.startsWith('BG-') ? 'BẢNG BÁO GIÁ CẤU HÌNH PC' : 'BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH')}
                   </h3>
-                  <p className="text-[0.75em] font-bold text-slate-400 mt-1">Ngày lập: {new Date(savedBuildInvoice.createdAt).toLocaleDateString('vi-VN')} - Tên NV: {savedBuildInvoice.processedBy || currentUser.fullName}</p>
+                  <p className="text-[0.75em] font-bold text-slate-400 mt-1">Ngày lập: {new Date(savedBuildInvoice.createdAt).toLocaleDateString('vi-VN')} - Tên NV: {savedBuildInvoice.processedBy || currentUser?.fullName || 'Nhân viên'}</p>
                 </div>
 
                 {/* Customer Section */}

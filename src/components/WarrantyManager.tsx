@@ -344,7 +344,7 @@ export default function WarrantyManager({
       expiryDate: calculatedExpiryStr,
       status: isExpired ? 'expired' : 'active',
       notes: newNotes.trim() || undefined,
-      processedBy: processedBy || currentUser.fullName
+      processedBy: processedBy || currentUser?.fullName || 'Nhân viên'
     };
 
     onAddWarranty(cardPayload);
