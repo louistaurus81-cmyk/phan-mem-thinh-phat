@@ -46,6 +46,7 @@ interface BuildItem {
   originalPrice: number;
   quantity: number;
   warrantyMonths: number;
+  isCustomSlot?: boolean;
 }
 
 const DEFAULT_SLOTS = [
@@ -59,7 +60,8 @@ const DEFAULT_SLOTS = [
   { id: 'fancase', name: 'Quạt tản nhiệt (FAN CASE)', icon: '🌀' },
   { id: 'cooling', name: 'Tản nhiệt (CPU Cooler)', icon: '❄️' },
   { id: 'monitor', name: 'Màn hình máy tính', icon: '🖥️' },
-  { id: 'accessories', name: 'Bàn phím, chuột & phím', icon: '⌨️' }
+  { id: 'accessories', name: 'Bàn phím, chuột & phím', icon: '⌨️' },
+  { id: 'other', name: 'Linh kiện khác (Arm màn hình, Card Wifi, LAN...)', icon: '🧩' }
 ];
 
 export default function PCBuilder({
@@ -404,9 +406,68 @@ export default function PCBuilder({
         );
       }
 
-      default:
+      case 'other':
+      default: {
+        if (slotId === 'other' || slotId.startsWith('extra_')) {
+          if (name.includes('mainboard') || name.includes('cpu')) return false;
+
+          return (
+            cat.includes('khác') || cat.includes('phụ kiện') || cat.includes('wifi') || cat.includes('lan') || cat.includes('mạng') ||
+            cat.includes('arm') || cat.includes('giá đỡ') || cat.includes('card') || cat.includes('mở rộng') || cat.includes('adapter') ||
+            cat.includes('gear') || cat.includes('linh kiện') ||
+            name.includes('arm') || name.includes('wifi') || name.includes('lan') || name.includes('bluetooth') ||
+            name.includes('sound') || name.includes('capture') || name.includes('riser') || name.includes('hub') ||
+            name.includes('giá đỡ') || name.includes('gia do') || name.includes('keo') || name.includes('dây nguồn') ||
+            name.includes('day nguon') || name.includes('anten') || name.includes('antena') || name.includes('type c') ||
+            name.includes('usb') || name.includes('pci') || name.includes('pcie') || name.includes('phụ kiện') || name.includes('card')
+          );
+        }
         return true;
+      }
     }
+  };
+
+  const getSlotIcon = (slotId: string, slotName?: string) => {
+    const found = DEFAULT_SLOTS.find(s => s.id === slotId);
+    if (found) return found.icon;
+    const name = (slotName || '').toLowerCase();
+    if (slotId.includes('wifi') || name.includes('wifi')) return '📶';
+    if (slotId.includes('lan') || name.includes('lan') || name.includes('mạng')) return '🌐';
+    if (slotId.includes('arm') || name.includes('arm') || name.includes('giá đỡ')) return '🦾';
+    if (name.includes('sound') || name.includes('âm thanh')) return '🔊';
+    if (name.includes('hub') || name.includes('led') || name.includes('rgb')) return '🎛️';
+    if (name.includes('riser') || name.includes('dây')) return '🔌';
+    return '🧩';
+  };
+
+  const handleAddCustomSlot = (presetName?: string) => {
+    const extraCount = build.filter(b => b.slotId.startsWith('extra_')).length;
+    const newSlotId = `extra_${Date.now()}`;
+    const newSlotName = presetName || `Linh kiện khác #${extraCount + 1}`;
+    setBuild(prev => [
+      ...prev,
+      {
+        slotId: newSlotId,
+        slotName: newSlotName,
+        productId: '',
+        productName: '',
+        selectedImei: '',
+        selectedImeis: [],
+        price: 0,
+        originalPrice: 0,
+        quantity: 1,
+        warrantyMonths: 24,
+        isCustomSlot: true
+      }
+    ]);
+  };
+
+  const handleRemoveCustomSlot = (slotId: string) => {
+    setBuild(prev => prev.filter(item => item.slotId !== slotId));
+  };
+
+  const handleUpdateSlotName = (slotId: string, newName: string) => {
+    setBuild(prev => prev.map(item => item.slotId === slotId ? { ...item, slotName: newName } : item));
   };
 
   const filteredProductsToChoose = useMemo(() => {
@@ -816,21 +877,46 @@ export default function PCBuilder({
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-[2rem] border-2 border-slate-200 bento-shadow overflow-hidden">
             <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/40">
-              <span className="text-xs font-black text-slate-900 uppercase tracking-wider">CẤU CẤU PHÂN CÔNG LINH KIỆN</span>
-              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-sm">SLOT SYSTEM: {DEFAULT_SLOTS.length}</span>
+              <span className="text-xs font-black text-slate-900 uppercase tracking-wider">CẤU HÌNH PHÂN CÔNG LINH KIỆN</span>
+              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-sm">SLOT SYSTEM: {build.length}</span>
             </div>
 
             <div className="divide-y divide-slate-100">
               {build.map(item => {
                 const isSelected = !!item.productName;
+                const isCustom = item.isCustomSlot || item.slotId.startsWith('extra_');
+
                 return (
                   <div key={item.slotId} className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition hover:bg-slate-50/20">
                     
                     {/* Component Info */}
                     <div className="flex items-start gap-3 min-w-0 flex-1">
-                      <span className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-xs shrink-0">{DEFAULT_SLOTS.find(s => s.id === item.slotId)?.icon}</span>
-                      <div className="min-w-0">
-                        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none">{item.slotName}</span>
+                      <span className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-xs shrink-0">{getSlotIcon(item.slotId, item.slotName)}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          {isCustom ? (
+                            <input
+                              type="text"
+                              value={item.slotName}
+                              onChange={e => handleUpdateSlotName(item.slotId, e.target.value)}
+                              placeholder="Tên mục linh kiện..."
+                              className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50/70 border border-indigo-200 rounded px-1.5 py-0.5 uppercase tracking-wider focus:outline-hidden focus:bg-white"
+                            />
+                          ) : (
+                            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none">{item.slotName}</span>
+                          )}
+                          {isCustom && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomSlot(item.slotId)}
+                              title="Xóa slot này"
+                              className="text-[10px] text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-1 py-0.5 rounded cursor-pointer transition"
+                            >
+                              ✕ Xóa slot
+                            </button>
+                          )}
+                        </div>
+
                         {isSelected ? (
                           <div className="mt-1">
                             <h4 className="font-bold text-slate-900 text-xs truncate">{item.productName}</h4>
@@ -928,9 +1014,10 @@ export default function PCBuilder({
                           />
                         </div>
 
-                        {/* Remove button */}
+                        {/* Remove/Clear button */}
                         <button 
                           onClick={() => handleClearSlot(item.slotId)}
+                          title="Xóa linh kiện này"
                           className="p-1.5 hover:bg-rose-50 text-rose-500 rounded-lg transition shrink-0 self-end sm:self-center cursor-pointer mt-1"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -949,6 +1036,56 @@ export default function PCBuilder({
                   </div>
                 );
               })}
+            </div>
+
+            {/* Quick Add Extra Slots Bar */}
+            <div className="p-4 bg-slate-50/80 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 mr-1">Thêm nhanh:</span>
+                <button 
+                  type="button" 
+                  onClick={() => handleAddCustomSlot('Arm màn hình / Giá treo')}
+                  className="text-[11px] font-bold bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                >
+                  <span>🦾</span> Arm màn hình
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => handleAddCustomSlot('Card Wifi / Bluetooth')}
+                  className="text-[11px] font-bold bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                >
+                  <span>📶</span> Card Wifi
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => handleAddCustomSlot('Card mạng LAN Gigabit/2.5G')}
+                  className="text-[11px] font-bold bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                >
+                  <span>🌐</span> Card LAN
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => handleAddCustomSlot('Dây Riser / Cáp nguồn nối dài')}
+                  className="text-[11px] font-bold bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                >
+                  <span>🔌</span> Dây Riser
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => handleAddCustomSlot('Hub Fan & LED ARGB')}
+                  className="text-[11px] font-bold bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 px-2.5 py-1 rounded-lg border border-slate-200 hover:border-indigo-200 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                >
+                  <span>🎛️</span> Hub RGB
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleAddCustomSlot()}
+                className="text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer ml-auto"
+              >
+                <PlusCircle className="w-3.5 h-3.5" /> + Thêm slot linh kiện khác
+              </button>
             </div>
 
           </div>
@@ -1193,7 +1330,7 @@ export default function PCBuilder({
               <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100 shrink-0">
                 <h3 className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5 uppercase tracking-wide">
                   <Cpu className="w-4 h-4 text-indigo-600" />
-                  Chọn Linh Kiện: {DEFAULT_SLOTS.find(s => s.id === activeSlotId)?.name}
+                  Chọn Linh Kiện: {build.find(s => s.slotId === activeSlotId)?.slotName || DEFAULT_SLOTS.find(s => s.id === activeSlotId)?.name || 'Linh kiện'}
                 </h3>
                 <button 
                   onClick={() => setActiveSlotId(null)}
@@ -1237,8 +1374,8 @@ export default function PCBuilder({
                   <div className="flex items-center justify-between text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 shrink-0">
                     <div className="flex items-center gap-1.5 text-slate-600 font-medium truncate">
                       <span className="text-[10px] uppercase font-bold text-slate-400">Bộ lọc:</span>
-                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md text-[11px]">
-                        {showAllProducts ? '🌐 Tất cả sản phẩm' : `🎯 ${DEFAULT_SLOTS.find(s => s.id === activeSlotId)?.name || 'Chuẩn danh mục'}`}
+                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md text-[11px] truncate max-w-[200px]">
+                        {showAllProducts ? '🌐 Tất cả sản phẩm' : `🎯 ${build.find(s => s.slotId === activeSlotId)?.slotName || DEFAULT_SLOTS.find(s => s.id === activeSlotId)?.name || 'Chuẩn danh mục'}`}
                       </span>
                     </div>
                     <button

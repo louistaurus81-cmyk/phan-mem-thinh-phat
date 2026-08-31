@@ -512,8 +512,9 @@ export default function App() {
     syncWithServer('settings', [newSettings]);
   };
 
-  const saveProducts = (newProds: Product[]) => {
-    const synced = syncProductsStockWithImeis(newProds, imeis);
+  const saveProducts = (newProds: Product[], customImeis?: ProductIMEI[]) => {
+    const activeImeis = customImeis || imeis;
+    const synced = syncProductsStockWithImeis(newProds, activeImeis);
     setProducts(synced);
     localStorage.setItem('thinhphat_v2_products', JSON.stringify(synced));
     syncWithServer('products', synced);
@@ -915,7 +916,100 @@ export default function App() {
     if (cleanedRepairs.some((rep, idx) => rep.debtAmount !== repairs[idx]?.debtAmount)) {
       saveRepairs(cleanedRepairs);
     }
-  }, [dbLoading, invoices, warranties, repairs, products, debts]);
+
+    // 5. Automatic synchronization of IMEI status & Product inventory with existing invoices and repair tickets
+    if (imeis && imeis.length > 0) {
+      let hasImeiSync = false;
+      let nextImeis = [...imeis];
+
+      // Build a map of all sold IMEIs from active invoices & repair tickets
+      const soldImeiMap = new Map<string, { docId: string; docNumber?: string }>();
+
+      invoices.forEach(inv => {
+        if (inv.items && Array.isArray(inv.items)) {
+          inv.items.forEach(item => {
+            if (item.imeis && Array.isArray(item.imeis)) {
+              item.imeis.forEach(imStr => {
+                if (imStr && typeof imStr === 'string') {
+                  const clean = imStr.trim().toLowerCase();
+                  if (clean) {
+                    soldImeiMap.set(clean, { docId: inv.id, docNumber: inv.invoiceNumber });
+                  }
+                }
+              });
+            }
+          });
+        }
+      });
+
+      repairs.forEach(rep => {
+        if (rep.usedParts && Array.isArray(rep.usedParts)) {
+          rep.usedParts.forEach(pt => {
+            if (pt.imei && typeof pt.imei === 'string') {
+              const clean = pt.imei.trim().toLowerCase();
+              if (clean) {
+                soldImeiMap.set(clean, { docId: rep.id, docNumber: rep.ticketNumber });
+              }
+            }
+          });
+        }
+      });
+
+      // Check each IMEI in nextImeis
+      nextImeis = nextImeis.map(im => {
+        const cleanImei = (im.imei || '').trim().toLowerCase();
+        const soldInfo = soldImeiMap.get(cleanImei);
+
+        if (soldInfo) {
+          // This IMEI was sold in an invoice or repair ticket
+          if (im.status !== 'sold' || im.invoiceId !== soldInfo.docId) {
+            hasImeiSync = true;
+            return {
+              ...im,
+              status: 'sold' as const,
+              invoiceId: soldInfo.docId
+            };
+          }
+        } else {
+          // Not in any active invoice/repair. If it was marked sold with an invoiceId that no longer exists, revert to in_stock
+          if (im.status === 'sold' && im.invoiceId) {
+            const invExists = invoices.some(i => i.id === im.invoiceId);
+            const repExists = repairs.some(r => r.id === im.invoiceId);
+            if (!invExists && !repExists) {
+              hasImeiSync = true;
+              return {
+                ...im,
+                status: 'in_stock' as const,
+                invoiceId: undefined
+              };
+            }
+          }
+        }
+        return im;
+      });
+
+      if (hasImeiSync) {
+        saveImeis(nextImeis);
+      }
+
+      // Also verify that products stock matches the count of in_stock IMEIs
+      let hasStockSync = false;
+      const nextProducts = products.map(p => {
+        if (p.hasImei) {
+          const inStockCount = nextImeis.filter(i => i.productId === p.id && i.status === 'in_stock').length;
+          if (p.stock !== inStockCount) {
+            hasStockSync = true;
+            return { ...p, stock: inStockCount };
+          }
+        }
+        return p;
+      });
+
+      if (hasStockSync) {
+        saveProducts(nextProducts, nextImeis);
+      }
+    }
+  }, [dbLoading, invoices, warranties, repairs, products, debts, imeis]);
 
   const saveCategories = (newCats: Category[]) => {
     setCategories(newCats);
@@ -1171,37 +1265,45 @@ export default function App() {
     }
 
     // Deduct stock for products sold & mark IMEIs as sold
-    let hasStockUpdate = false;
-    let hasImeiUpdate = false;
-
-    // Use a copy of products and imeis to mutate
     let updatedProducts = [...products];
     let updatedImeis = [...imeis];
 
     newInvoice.items.forEach(item => {
-        const prod = updatedProducts.find(p => p.id === item.productId);
-        if (prod) {
-            hasStockUpdate = true;
-            prod.stock = Math.max(0, prod.stock - item.quantity);
-            
-            if (prod.hasImei && item.imeis && item.imeis.length > 0) {
-                hasImeiUpdate = true;
-                item.imeis.forEach(imeiToMark => {
-                    const imeiIdx = updatedImeis.findIndex(i => i.imei === imeiToMark && i.status === 'in_stock');
-                    if (imeiIdx > -1) {
-                        updatedImeis[imeiIdx] = { ...updatedImeis[imeiIdx], status: 'sold', invoiceId: newInvoice.id };
-                    }
-                });
-            }
+      // 1. Mark explicit IMEIs as sold
+      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
+        item.imeis.forEach(imeiToMark => {
+          if (!imeiToMark) return;
+          const cleanMark = imeiToMark.trim().toLowerCase();
+          const imeiIdx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanMark);
+          if (imeiIdx > -1) {
+            updatedImeis[imeiIdx] = { ...updatedImeis[imeiIdx], status: 'sold', invoiceId: newInvoice.id };
+          }
+        });
+      }
+
+      // 2. Find matching product with multiple fallbacks
+      const cleanItemName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
+      const prod = updatedProducts.find(p => 
+        p.id === item.productId || 
+        (p.sku && p.sku === item.productId) || 
+        p.name === item.productName ||
+        p.name === cleanItemName ||
+        item.productName.includes(p.name) ||
+        (cleanItemName && p.name.includes(cleanItemName))
+      );
+
+      if (prod) {
+        if (!prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
+          prod.stock = Math.max(0, prod.stock - item.quantity);
         }
+      }
     });
 
-    if (hasStockUpdate) {
-      saveProducts(updatedProducts);
-    }
-    if (hasImeiUpdate) {
-      saveImeis(updatedImeis);
-    }
+    // 3. Atomically sync product stock based on remaining in_stock IMEIs
+    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
+
+    saveProducts(updatedProducts, updatedImeis);
+    saveImeis(updatedImeis);
 
     // Relational auto-provision of active warranty records!
     const updatedWarranties = [...warranties];
@@ -1289,43 +1391,61 @@ export default function App() {
 
     // Revert old items stock & IMEIs
     oldInvoice.items.forEach(item => {
-      const prod = updatedProducts.find(p => p.id === item.productId);
-      if (prod) {
-        if (!prod.hasImei) {
-          prod.stock += item.quantity;
-        }
-        if (prod.hasImei && item.imeis && item.imeis.length > 0) {
-          item.imeis.forEach(im => {
-            const idx = updatedImeis.findIndex(i => i.productId === prod.id && i.imei === im);
-            if (idx > -1) {
-              updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
-            }
-          });
-        }
+      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
+        item.imeis.forEach(im => {
+          if (!im) return;
+          const cleanIm = im.trim().toLowerCase();
+          const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
+          if (idx > -1) {
+            updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
+          }
+        });
+      }
+
+      const cleanOldName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
+      const prod = updatedProducts.find(p => 
+        p.id === item.productId || 
+        (p.sku && p.sku === item.productId) || 
+        p.name === item.productName ||
+        p.name === cleanOldName ||
+        item.productName.includes(p.name) ||
+        (cleanOldName && p.name.includes(cleanOldName))
+      );
+      if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
+        prod.stock += item.quantity;
       }
     });
 
     // Deduct new items stock & IMEIs
     updatedInvoice.items.forEach(item => {
-      const prod = updatedProducts.find(p => p.id === item.productId);
-      if (prod) {
-        if (!prod.hasImei) {
-          prod.stock = Math.max(0, prod.stock - item.quantity);
-        }
-        if (prod.hasImei && item.imeis && item.imeis.length > 0) {
-          item.imeis.forEach(im => {
-            const idx = updatedImeis.findIndex(i => i.productId === prod.id && i.imei === im);
-            if (idx > -1) {
-              updatedImeis[idx] = { ...updatedImeis[idx], status: 'sold', invoiceId: updatedInvoice.id };
-            }
-          });
-        }
+      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
+        item.imeis.forEach(im => {
+          if (!im) return;
+          const cleanIm = im.trim().toLowerCase();
+          const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
+          if (idx > -1) {
+            updatedImeis[idx] = { ...updatedImeis[idx], status: 'sold', invoiceId: updatedInvoice.id };
+          }
+        });
+      }
+
+      const cleanNewName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
+      const prod = updatedProducts.find(p => 
+        p.id === item.productId || 
+        (p.sku && p.sku === item.productId) || 
+        p.name === item.productName ||
+        p.name === cleanNewName ||
+        item.productName.includes(p.name) ||
+        (cleanNewName && p.name.includes(cleanNewName))
+      );
+      if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
+        prod.stock = Math.max(0, prod.stock - item.quantity);
       }
     });
 
     updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
 
-    saveProducts(updatedProducts);
+    saveProducts(updatedProducts, updatedImeis);
     saveImeis(updatedImeis);
 
     const nextInvoices = invoices.map(inv => inv.id === updatedInvoice.id ? updatedInvoice : inv);
@@ -1422,25 +1542,34 @@ export default function App() {
 
     // Revert stock & IMEIs
     targetInvoice.items.forEach(item => {
-      const prod = updatedProducts.find(p => p.id === item.productId);
-      if (prod) {
-        if (!prod.hasImei) {
-          prod.stock += item.quantity;
-        }
-        if (prod.hasImei && item.imeis && item.imeis.length > 0) {
-          item.imeis.forEach(im => {
-            const idx = updatedImeis.findIndex(i => i.productId === prod.id && i.imei === im);
-            if (idx > -1) {
-              updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
-            }
-          });
-        }
+      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
+        item.imeis.forEach(im => {
+          if (!im) return;
+          const cleanIm = im.trim().toLowerCase();
+          const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
+          if (idx > -1) {
+            updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
+          }
+        });
+      }
+
+      const cleanItemName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
+      const prod = updatedProducts.find(p => 
+        p.id === item.productId || 
+        (p.sku && p.sku === item.productId) || 
+        p.name === item.productName ||
+        p.name === cleanItemName ||
+        item.productName.includes(p.name) ||
+        (cleanItemName && p.name.includes(cleanItemName))
+      );
+      if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
+        prod.stock += item.quantity;
       }
     });
 
     updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
 
-    saveProducts(updatedProducts);
+    saveProducts(updatedProducts, updatedImeis);
     saveImeis(updatedImeis);
 
     const nextInvoices = invoices.filter(inv => inv.id !== invoiceId);

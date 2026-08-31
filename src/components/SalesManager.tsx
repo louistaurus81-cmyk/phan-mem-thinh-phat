@@ -519,36 +519,8 @@ export default function SalesManager({
       debtDueDate: isDebt ? debtDueDate : undefined
     };
 
-    // Commit invoice and deduct stock
+    // Commit invoice and deduct stock & IMEIs centrally
     onAddInvoice(invoicePayload);
-    
-    // Update IMEIs
-    let updatedImeis = [...imeis];
-    let imeisChanged = false;
-
-    cart.forEach(item => {
-      const prod = products.find(p => p.id === item.productId);
-      if (prod) {
-        
-        if (item.imeis && item.imeis.length > 0) {
-          item.imeis.forEach(imeiToMark => {
-            const index = updatedImeis.findIndex(i => i.imei === imeiToMark && i.status === 'in_stock');
-            if (index > -1) {
-              updatedImeis[index] = {
-                ...updatedImeis[index],
-                status: 'sold',
-                invoiceId: invoicePayload.id
-              };
-              imeisChanged = true;
-            }
-          });
-        }
-      }
-    });
-
-    if (imeisChanged) {
-      onUpdateImeis(updatedImeis);
-    }
 
     // Clear cart and reset states
     setCart([]);
