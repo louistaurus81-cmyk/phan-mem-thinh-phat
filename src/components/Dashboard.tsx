@@ -176,10 +176,15 @@ export default function Dashboard({
         {/* Metric 1: Total Revenue */}
         <motion.div 
           whileHover={{ y: -3 }}
-          className="bg-white rounded-[2rem] border-2 border-slate-200 p-6 flex flex-col justify-between min-h-[140px] bento-shadow"
+          onClick={() => onNavigate('reports')}
+          className="bg-white rounded-[2rem] border-2 border-slate-200 p-6 flex flex-col justify-between min-h-[140px] bento-shadow cursor-pointer hover:border-emerald-300 transition group"
+          title="Bấm để xem Báo cáo Doanh thu, Lợi nhuận & Công nợ"
         >
-          <div>
+          <div className="flex items-center justify-between">
             <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Tổng Doanh Thu</p>
+            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 group-hover:bg-emerald-100 px-2 py-0.5 rounded-full transition">Chi tiết →</span>
+          </div>
+          <div>
             <h2 className="text-2xl md:text-3xl font-extrabold mt-1 text-emerald-600">{formatVND(stats.revenue)}</h2>
           </div>
           <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 font-bold bg-emerald-50 w-fit px-2.5 py-0.5 rounded-full mt-2">

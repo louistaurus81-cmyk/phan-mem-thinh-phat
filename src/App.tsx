@@ -38,6 +38,7 @@ import Login from './components/Login';
 import AccountManager from './components/AccountManager';
 import PrintSettingsManager from './components/PrintSettingsManager';
 import OwnerDashboard from './components/OwnerDashboard';
+import ReportManager from './components/ReportManager';
 import TPLogo from './components/TPLogo';
 import { 
   LayoutDashboard, 
@@ -55,7 +56,8 @@ import {
   Factory,
   Crown,
   Bell,
-  CheckCheck
+  CheckCheck,
+  BarChart3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -2046,6 +2048,7 @@ export default function App() {
                   {[
                     { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
                     { id: 'owner', label: 'Bảng Chủ Shop 👑', icon: Crown },
+                    { id: 'reports', label: 'Báo Cáo & Lợi Nhuận', icon: BarChart3 },
                     { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
                     { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
                     { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
@@ -2132,6 +2135,7 @@ export default function App() {
             {[
               { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
               { id: 'owner', label: 'Bảng Chủ Shop 👑', icon: Crown },
+              { id: 'reports', label: 'Báo Cáo & Lợi Nhuận', icon: BarChart3 },
               { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
               { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
               { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
@@ -2201,6 +2205,7 @@ export default function App() {
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
               {activeTab === 'dashboard' && 'Bảng Điều Khiển Kinh Doanh'}
               {activeTab === 'owner' && 'Bảng Giám Sát Chủ Cửa Hàng (Owner Dashboard)'}
+              {activeTab === 'reports' && 'Báo Cáo Doanh Thu, Công Nợ & Lợi Nhuận'}
               {activeTab === 'sales' && 'Giao Dịch Bán Hàng & Quản Lý Kho'}
               {activeTab === 'buildpc' && 'Tự Build Cấu Hình Máy Tính & Báo Giá'}
               {activeTab === 'repairs' && 'Tiếp Nhận & Sửa Chữa Thiết Bị'}
@@ -2214,6 +2219,7 @@ export default function App() {
             <p className="text-xs text-slate-500 mt-0.5">
               {activeTab === 'dashboard' && 'Báo cáo nhanh doanh số bán hàng, tình trạng sửa chữa thiết bị, dịch vụ bảo hành.'}
               {activeTab === 'owner' && 'Theo dõi realtime đơn hàng đã bán trong ngày, thông báo doanh thu, lợi nhuận & hiệu suất nhân viên.'}
+              {activeTab === 'reports' && 'Phân tích doanh thu, lợi nhuận gộp, lịch sử bán hàng và biến động công nợ theo tháng hoặc khoảng thời gian tùy chọn.'}
               {activeTab === 'sales' && 'Thiết lập giỏ nhận thanh toán hóa đơn nhanh, kích hoạt tự động thẻ bảo hành, điều chỉnh số tồn kho.'}
               {activeTab === 'buildpc' && 'Phối ráp CPU, RAM, ổ cứng, giá tùy chỉnh thực tế, bảo hành riêng lẻ và in báo giá.'}
               {activeTab === 'repairs' && 'Ghi chép tiếp quản máy hỏng kỹ thuật, tra cứu tự động nếu có bảo hành, bàn giao máy lưu kho.'}
@@ -2379,6 +2385,19 @@ export default function App() {
                 activities={activities}
                 onMarkLogRead={handleMarkLogRead}
                 onClearLogs={handleClearLogs}
+                onNavigate={setActiveTab}
+              />
+            )}
+
+            {activeTab === 'reports' && (
+              <ReportManager 
+                products={products}
+                invoices={invoices}
+                repairs={repairs}
+                debts={debts}
+                customers={customers}
+                users={users}
+                printSettings={printSettings}
                 onNavigate={setActiveTab}
               />
             )}
