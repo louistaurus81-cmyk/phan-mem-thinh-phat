@@ -137,7 +137,7 @@ export default function DebtManager({
     let totalCollected = 0;
 
     debts.forEach(d => {
-      const paid = (d.amount || 0) - (d.remainingAmount || 0);
+      const paid = (d.payments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
       if (paid > 0) totalCollected += paid;
 
       if (d.status !== 'paid' && d.remainingAmount > 0) {
@@ -287,18 +287,13 @@ export default function DebtManager({
     return debt.dueDate < today;
   };
 
-  // Helper to build complete chronological payment timeline including initial down payment
+  // Helper to build complete chronological payment timeline for recorded payments only
   const getFullDebtPayments = (d: Debt) => {
     const paymentsList = d.payments || [];
-    const inv = getInvoiceForDebt(d);
-
-    const sumRecorded = paymentsList.reduce((acc, p) => acc + (p.amount || 0), 0);
-    const totalPaidSoFar = (d.amount || 0) - (d.remainingAmount || 0);
-    const initialAmount = Math.max(0, totalPaidSoFar - sumRecorded);
 
     const result: {
       payment: DebtPayment;
-      indexNumber?: number;
+      indexNumber: number;
       indexLabel: string;
       remainingAfter: number;
       isInitial?: boolean;
@@ -306,32 +301,9 @@ export default function DebtManager({
 
     let runningRemaining = d.amount;
 
-    if (initialAmount > 0) {
-      runningRemaining -= initialAmount;
-      const initialPayment: DebtPayment = {
-        id: `initial_${d.id}`,
-        amount: initialAmount,
-        paidAt: inv?.createdAt || d.createdAt || new Date().toISOString(),
-        note: inv 
-          ? `Thanh toán ban đầu cho HĐ #${inv.invoiceNumber}` 
-          : 'Thanh toán 1 phần lúc tạo công nợ',
-        collectedBy: inv?.processedBy || 'Thu ngân / POS',
-        paymentMethod: (inv?.paymentMethod as any) || 'Tiền mặt'
-      };
-
-      result.push({
-        payment: initialPayment,
-        indexNumber: 1,
-        indexLabel: 'Lần 1',
-        remainingAfter: Math.max(0, runningRemaining),
-        isInitial: true
-      });
-    }
-
-    const startIdx = initialAmount > 0 ? 2 : 1;
     paymentsList.forEach((p, idx) => {
       runningRemaining -= p.amount;
-      const seq = startIdx + idx;
+      const seq = idx + 1;
       result.push({
         payment: p,
         indexNumber: seq,
@@ -716,23 +688,44 @@ export default function DebtManager({
               </div>
 
               {/* Debt Progress & Stats Banner */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-4 shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-extrabold">Nợ Ban Đầu</span>
-                  <div className="font-mono font-bold text-slate-800 text-sm">{formatVND(selectedDebtForHistory.amount)}</div>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-extrabold">Đã Thanh Toán</span>
-                  <div className="font-mono font-bold text-emerald-600 text-sm">
-                    {formatVND(selectedDebtForHistory.amount - selectedDebtForHistory.remainingAmount)}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-4 shrink-0 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-extrabold">Số Tiền Nợ Ban Đầu</span>
+                    <div className="font-mono font-bold text-slate-800 text-sm">{formatVND(selectedDebtForHistory.amount)}</div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-extrabold">Đã Thu Hồi Nợ</span>
+                    <div className="font-mono font-bold text-emerald-600 text-sm">
+                      {formatVND((selectedDebtForHistory.payments || []).reduce((sum, p) => sum + (p.amount || 0), 0))}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-extrabold">Dư Nợ Còn Lại</span>
+                    <div className="font-mono font-black text-indigo-600 text-sm">
+                      {formatVND(selectedDebtForHistory.remainingAmount)}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-extrabold">Dư Nợ Còn Lại</span>
-                  <div className="font-mono font-black text-indigo-600 text-sm">
-                    {formatVND(selectedDebtForHistory.remainingAmount)}
-                  </div>
-                </div>
+
+                {(() => {
+                  const inv = getInvoiceForDebt(selectedDebtForHistory);
+                  if (inv && inv.totalAmount > selectedDebtForHistory.amount) {
+                    const counterPaid = inv.totalAmount - selectedDebtForHistory.amount;
+                    return (
+                      <div className="bg-white/80 border border-indigo-100 rounded-xl p-2.5 text-xs text-indigo-900 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <span>🧾</span>
+                          <span>Hóa đơn gốc #{inv.invoiceNumber}: Tổng giá trị <strong>{formatVND(inv.totalAmount)}</strong></span>
+                        </div>
+                        <div className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                          Đã thanh toán tại quầy POS: +{formatVND(counterPaid)} ({inv.paymentMethod})
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               {/* Payments Timeline / List */}
@@ -811,9 +804,11 @@ export default function DebtManager({
                       </table>
                     </div>
                   ) : (
-                    <div className="text-center py-12 text-slate-400 space-y-2">
+                    <div className="text-center py-10 text-slate-400 space-y-2 bg-slate-50/60 rounded-xl border border-dashed border-slate-200 p-6">
                       <Receipt className="w-8 h-8 mx-auto opacity-40 text-slate-400" />
-                      <p className="text-xs italic">Chưa có lịch sử thu nợ nào cho bản ghi này.</p>
+                      <p className="text-xs font-bold text-slate-700">Chưa có đợt thu hồi nợ nào được ghi nhận cho khoản nợ này.</p>
+                      <p className="text-[11px] text-slate-500">Khách hàng hiện vẫn đang nợ: <strong className="text-indigo-600 font-mono font-black">{formatVND(selectedDebtForHistory.remainingAmount)}</strong></p>
+                      <p className="text-[10px] text-slate-400 italic">Bấm nút "+ Thu Thêm Công Nợ" bên dưới khi khách thanh toán để tạo phiếu thu.</p>
                     </div>
                   )
                 ) : (

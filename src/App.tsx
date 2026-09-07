@@ -134,39 +134,29 @@ const cleanDocNumber = (str?: string) => {
 const isInvoiceMatchDebt = (i: SalesInvoice, targetDebt: Debt) => {
   if (!i || !targetDebt) return false;
 
-  if (targetDebt.invoiceId && (i.id === targetDebt.invoiceId || targetDebt.invoiceId.endsWith(i.id) || i.id.endsWith(targetDebt.invoiceId))) {
+  // 1. Direct ID matching
+  if (targetDebt.invoiceId && (i.id === targetDebt.invoiceId || i.invoiceNumber === targetDebt.invoiceId)) {
     return true;
   }
-  if (targetDebt.id && (targetDebt.id.includes(i.id) || i.id.includes(targetDebt.id))) {
+  if (targetDebt.id && (targetDebt.id === `debt_${i.id}` || targetDebt.id.includes(`inv_${i.id}`))) {
     return true;
   }
 
   const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
   const cleanInvNum = cleanDocNumber(i.invoiceNumber);
 
-  // If both have document numbers, check if clean numbers match. If both exist and differ, DO NOT match!
+  // 2. Strict exact document number matching (NEVER use partial endsWith)
   if (cleanDebtNum && cleanInvNum) {
-    if (cleanDebtNum === cleanInvNum || cleanDebtNum.endsWith(cleanInvNum) || cleanInvNum.endsWith(cleanDebtNum)) {
-      return true;
-    }
-    return false; // Different document numbers MUST NOT match!
+    return cleanDebtNum === cleanInvNum;
   }
 
   if (targetDebt.invoiceNumber && i.invoiceNumber) {
-    if (targetDebt.invoiceNumber === i.invoiceNumber) return true;
-    return false;
+    return targetDebt.invoiceNumber.trim() === i.invoiceNumber.trim();
   }
 
-  if (targetDebt.note && (i.invoiceNumber && targetDebt.note.includes(i.invoiceNumber) || (cleanInvNum && targetDebt.note.includes(cleanInvNum)))) {
-    return true;
-  }
-  if (i.note && (targetDebt.invoiceNumber && i.note.includes(targetDebt.invoiceNumber) || (cleanDebtNum && i.note.includes(cleanDebtNum)))) {
-    return true;
-  }
-
-  // Only if document numbers are missing on one or both, fallback to customer + totalAmount + createdAt match
+  // 3. Fallback only if document numbers are missing: same customer and identical timestamp and amount
   if (targetDebt.customerId && i.customerId === targetDebt.customerId) {
-    if (i.totalAmount === targetDebt.amount && i.createdAt === targetDebt.createdAt) {
+    if (i.debtAmount && (i.debtAmount === targetDebt.amount || i.debtAmount === targetDebt.remainingAmount) && i.createdAt === targetDebt.createdAt) {
       return true;
     }
   }
@@ -177,33 +167,29 @@ const isInvoiceMatchDebt = (i: SalesInvoice, targetDebt: Debt) => {
 const isRepairMatchDebt = (r: RepairTicket, targetDebt: Debt) => {
   if (!r || !targetDebt) return false;
 
-  if (targetDebt.invoiceId && (targetDebt.invoiceId === `inv_repair_${r.id}` || targetDebt.invoiceId.includes(r.id))) {
+  // 1. Direct ID matching
+  if (targetDebt.invoiceId && (targetDebt.invoiceId === `inv_repair_${r.id}` || targetDebt.invoiceId === r.id)) {
     return true;
   }
-  if (targetDebt.id && targetDebt.id.includes(r.id)) {
+  if (targetDebt.id && targetDebt.id.includes(`rep_${r.id}`)) {
     return true;
   }
 
   const cleanTicketNum = cleanDocNumber(r.ticketNumber);
   const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
 
+  // 2. Strict exact ticket number matching
   if (cleanDebtNum && cleanTicketNum) {
-    if (cleanDebtNum === cleanTicketNum || cleanDebtNum.endsWith(cleanTicketNum) || cleanTicketNum.endsWith(cleanDebtNum)) {
-      return true;
-    }
-    return false; // Different ticket/debt numbers MUST NOT match!
+    return cleanDebtNum === cleanTicketNum;
   }
 
-  if (targetDebt.invoiceNumber && (targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}` || targetDebt.invoiceNumber.includes(r.ticketNumber))) {
+  if (targetDebt.invoiceNumber && targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}`) {
     return true;
   }
 
-  if (targetDebt.note && (r.ticketNumber && targetDebt.note.includes(r.ticketNumber) || (cleanTicketNum && targetDebt.note.includes(cleanTicketNum)))) {
-    return true;
-  }
-
+  // 3. Fallback only if ticket numbers are missing
   if (targetDebt.customerId && r.customerId === targetDebt.customerId) {
-    if ((r.actualCost || r.estimatedCost) === targetDebt.amount && r.createdAt === targetDebt.createdAt) {
+    if (r.debtAmount && (r.debtAmount === targetDebt.amount || r.debtAmount === targetDebt.remainingAmount) && r.createdAt === targetDebt.createdAt) {
       return true;
     }
   }
@@ -225,10 +211,56 @@ const deduplicateAndSyncDebts = (
   let nextInvoices = [...allInvoices];
   let nextRepairs = [...allRepairs];
 
-  // 1. Group duplicate debts together
+  // 0. Self-Healing & Accuracy Audit:
+  // Normalize debt amounts, restore any mistakenly zeroed or auto-paid debts
+  const verifiedDebts: Debt[] = allDebts.map(debt => {
+    let d = { ...debt };
+    const inv = nextInvoices.find(i => isInvoiceMatchDebt(i, d));
+    const rep = nextRepairs.find(r => isRepairMatchDebt(r, d));
+    const recordedPayments = d.payments || [];
+    const sumCollected = recordedPayments.reduce((s, p) => s + (p.amount || 0), 0);
+
+    // Case A: Debt amount was mistakenly set to full invoice total (e.g. 10.300.000đ instead of 1.000.000đ debt)
+    if (inv && inv.debtAmount && inv.debtAmount > 0 && inv.totalAmount > inv.debtAmount) {
+      if (d.amount === inv.totalAmount && d.remainingAmount <= inv.debtAmount && recordedPayments.length === 0) {
+        d.amount = inv.debtAmount;
+        d.remainingAmount = inv.debtAmount;
+        d.status = 'pending';
+        d.invoiceTotalAmount = inv.totalAmount;
+        d.downPayment = inv.totalAmount - inv.debtAmount;
+        hasChanged = true;
+      }
+    }
+
+    // Case B: Debt was incorrectly marked as 'paid' or remainingAmount: 0 even though no payments exist
+    // and the source invoice/repair still has debtAmount > 0
+    if (recordedPayments.length === 0 && (d.status === 'paid' || d.remainingAmount === 0)) {
+      const actualSourceDebt = inv?.debtAmount || rep?.debtAmount;
+      if (actualSourceDebt && actualSourceDebt > 0) {
+        d.amount = actualSourceDebt;
+        d.remainingAmount = actualSourceDebt;
+        d.status = 'pending';
+        hasChanged = true;
+      }
+    }
+
+    // Case C: Debt has recorded payments -> remainingAmount MUST strictly equal amount - sumCollected
+    if (recordedPayments.length > 0) {
+      const calculatedRemaining = Math.max(0, d.amount - sumCollected);
+      if (d.remainingAmount !== calculatedRemaining) {
+        d.remainingAmount = calculatedRemaining;
+        d.status = calculatedRemaining === 0 ? 'paid' : 'partial';
+        hasChanged = true;
+      }
+    }
+
+    return d;
+  });
+
+  // 1. Group duplicate debts together strictly
   const debtGroups: Debt[][] = [];
 
-  allDebts.forEach(debt => {
+  verifiedDebts.forEach(debt => {
     const cleanNum = cleanDocNumber(debt.invoiceNumber);
 
     const matchingGroup = debtGroups.find(group => {
@@ -237,18 +269,15 @@ const deduplicateAndSyncDebts = (
 
         const existingClean = cleanDocNumber(existing.invoiceNumber);
 
-        // If both have document numbers, check if clean numbers match. If both exist and differ, DO NOT group!
+        // If both have document numbers, group ONLY IF clean numbers are identical
         if (cleanNum && existingClean) {
-          return cleanNum === existingClean || cleanNum.endsWith(existingClean) || existingClean.endsWith(cleanNum);
+          return cleanNum === existingClean;
         }
 
-        if (debt.invoiceId && existing.invoiceId && (debt.invoiceId === existing.invoiceId || debt.invoiceId.endsWith(existing.invoiceId) || existing.invoiceId.endsWith(debt.invoiceId))) return true;
+        // Direct invoiceId match
+        if (debt.invoiceId && existing.invoiceId && debt.invoiceId === existing.invoiceId) return true;
 
         if (debt.invoiceNumber && existing.invoiceNumber && debt.invoiceNumber === existing.invoiceNumber) return true;
-
-        if (!cleanNum && !existingClean && debt.customerId && existing.customerId && debt.customerId === existing.customerId) {
-          if (debt.amount === existing.amount && debt.createdAt === existing.createdAt) return true;
-        }
 
         return false;
       });
@@ -261,19 +290,18 @@ const deduplicateAndSyncDebts = (
     }
   });
 
-  // 2. Consolidate each group
+  // 2. Consolidate each group safely
   const consolidatedDebts: Debt[] = debtGroups.map(group => {
     if (group.length === 1) return group[0];
 
     hasChanged = true;
 
-    // Prefer paid record or record with payments or lowest remaining amount
+    // Prefer record with payments or newest created
     group.sort((a, b) => {
-      if (a.remainingAmount !== b.remainingAmount) return a.remainingAmount - b.remainingAmount;
       const aPayments = (a.payments || []).length;
       const bPayments = (b.payments || []).length;
       if (aPayments !== bPayments) return bPayments - aPayments;
-      return b.id.localeCompare(a.id);
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
 
     const primary = group[0];
@@ -299,27 +327,22 @@ const deduplicateAndSyncDebts = (
     };
   });
 
-  // 3. Two-way strict sync between consolidatedDebts and Invoices/Repairs
-  consolidatedDebts.forEach((debt, dIdx) => {
-    // Find matching invoice
+  // 3. Keep invoices and repairs in sync with debt state
+  // CRITICAL RULE: NEVER auto-zero debts from invoices/repairs!
+  // Invoices and repairs reflect what is collected in the Debt tab.
+  consolidatedDebts.forEach((debt) => {
+    // Sync invoice
     const invIdx = nextInvoices.findIndex(i => isInvoiceMatchDebt(i, debt));
     if (invIdx > -1) {
       const inv = nextInvoices[invIdx];
-      if (inv.debtAmount === 0 && debt.remainingAmount > 0) {
-        consolidatedDebts[dIdx] = {
-          ...debt,
-          remainingAmount: 0,
-          status: 'paid'
-        };
-        hasChanged = true;
-      } else if (debt.remainingAmount === 0 && inv.debtAmount && inv.debtAmount > 0) {
+      if (debt.remainingAmount === 0 && inv.debtAmount && inv.debtAmount > 0) {
         nextInvoices[invIdx] = {
           ...inv,
           debtAmount: 0,
           paymentMethod: inv.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : inv.paymentMethod
         };
         hasChanged = true;
-      } else if (inv.debtAmount !== debt.remainingAmount) {
+      } else if (debt.remainingAmount > 0 && inv.debtAmount !== debt.remainingAmount) {
         nextInvoices[invIdx] = {
           ...inv,
           debtAmount: debt.remainingAmount
@@ -328,24 +351,17 @@ const deduplicateAndSyncDebts = (
       }
     }
 
-    // Find matching repair
+    // Sync repair
     const repIdx = nextRepairs.findIndex(r => isRepairMatchDebt(r, debt));
     if (repIdx > -1) {
       const rep = nextRepairs[repIdx];
-      if (rep.debtAmount === 0 && debt.remainingAmount > 0) {
-        consolidatedDebts[dIdx] = {
-          ...debt,
-          remainingAmount: 0,
-          status: 'paid'
-        };
-        hasChanged = true;
-      } else if (debt.remainingAmount === 0 && rep.debtAmount && rep.debtAmount > 0) {
+      if (debt.remainingAmount === 0 && rep.debtAmount && rep.debtAmount > 0) {
         nextRepairs[repIdx] = {
           ...rep,
           debtAmount: 0
         };
         hasChanged = true;
-      } else if (rep.debtAmount !== debt.remainingAmount) {
+      } else if (debt.remainingAmount > 0 && rep.debtAmount !== debt.remainingAmount) {
         nextRepairs[repIdx] = {
           ...rep,
           debtAmount: debt.remainingAmount
@@ -868,12 +884,13 @@ export default function App() {
             customerId: rep.customerId,
             customerName: rep.customerName,
             customerPhone: rep.customerPhone,
-            amount: rep.actualCost || rep.estimatedCost,
+            amount: rep.debtAmount,
             remainingAmount: rep.debtAmount,
             dueDate: rep.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            status: rep.debtAmount === (rep.actualCost || rep.estimatedCost) ? 'pending' : 'partial',
+            status: 'pending',
             createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
-            note: `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`
+            note: `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`,
+            payments: []
           });
         }
       }
@@ -891,12 +908,15 @@ export default function App() {
             customerId: inv.customerId,
             customerName: inv.customerName,
             customerPhone: inv.customerPhone,
-            amount: inv.totalAmount,
+            amount: inv.debtAmount,
             remainingAmount: inv.debtAmount,
+            invoiceTotalAmount: inv.totalAmount,
+            downPayment: inv.totalAmount - inv.debtAmount,
             dueDate: inv.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            status: inv.debtAmount === inv.totalAmount ? 'pending' : 'partial',
+            status: 'pending',
             createdAt: inv.createdAt,
-            note: `Công nợ hóa đơn #${inv.invoiceNumber}` + (inv.note ? ` - ${inv.note}` : '')
+            note: `Công nợ hóa đơn #${inv.invoiceNumber}` + (inv.note ? ` - ${inv.note}` : ''),
+            payments: []
           });
         }
       }
@@ -1256,12 +1276,15 @@ export default function App() {
         customerId: newInvoice.customerId,
         customerName: newInvoice.customerName,
         customerPhone: newInvoice.customerPhone,
-        amount: newInvoice.totalAmount,
+        amount: newInvoice.debtAmount,
         remainingAmount: newInvoice.debtAmount,
+        invoiceTotalAmount: newInvoice.totalAmount,
+        downPayment: newInvoice.totalAmount - newInvoice.debtAmount,
         dueDate: newInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        status: newInvoice.debtAmount === newInvoice.totalAmount ? 'pending' : 'partial',
+        status: 'pending',
         createdAt: newInvoice.createdAt,
-        note: `Công nợ hóa đơn #${newInvoice.invoiceNumber}` + (newInvoice.note ? ` - ${newInvoice.note}` : '')
+        note: `Công nợ hóa đơn #${newInvoice.invoiceNumber}` + (newInvoice.note ? ` - ${newInvoice.note}` : ''),
+        payments: []
       };
       saveDebts([...debts, newDebt]);
     }
@@ -1465,8 +1488,10 @@ export default function App() {
 
         nextDebts[existingDebtIdx] = {
           ...existing,
-          amount: updatedInvoice.totalAmount,
+          amount: updatedInvoice.debtAmount,
           remainingAmount: newRemaining,
+          invoiceTotalAmount: updatedInvoice.totalAmount,
+          downPayment: updatedInvoice.totalAmount - updatedInvoice.debtAmount,
           status: newRemaining === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending'),
           customerName: updatedInvoice.customerName,
           customerPhone: updatedInvoice.customerPhone,
@@ -1481,24 +1506,30 @@ export default function App() {
           customerId: updatedInvoice.customerId,
           customerName: updatedInvoice.customerName,
           customerPhone: updatedInvoice.customerPhone,
-          amount: updatedInvoice.totalAmount,
+          amount: updatedInvoice.debtAmount,
           remainingAmount: updatedInvoice.debtAmount,
+          invoiceTotalAmount: updatedInvoice.totalAmount,
+          downPayment: updatedInvoice.totalAmount - updatedInvoice.debtAmount,
           dueDate: updatedInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          status: updatedInvoice.debtAmount === updatedInvoice.totalAmount ? 'pending' : 'partial',
+          status: 'pending',
           createdAt: updatedInvoice.createdAt,
-          note: `Công nợ hóa đơn #${updatedInvoice.invoiceNumber}` + (updatedInvoice.note ? ` - ${updatedInvoice.note}` : '')
+          note: `Công nợ hóa đơn #${updatedInvoice.invoiceNumber}` + (updatedInvoice.note ? ` - ${updatedInvoice.note}` : ''),
+          payments: []
         };
         saveDebts([...debts, newDebt]);
       }
     } else if (existingDebtIdx > -1) {
       const nextDebts = [...debts];
       const existing = nextDebts[existingDebtIdx];
-      nextDebts[existingDebtIdx] = {
-        ...existing,
-        remainingAmount: 0,
-        status: 'paid'
-      };
-      saveDebts(nextDebts);
+      // Only mark paid if no payments exist or remaining balance was settled
+      if (!existing.payments || existing.payments.length === 0) {
+        nextDebts[existingDebtIdx] = {
+          ...existing,
+          remainingAmount: 0,
+          status: 'paid'
+        };
+        saveDebts(nextDebts);
+      }
     }
 
     // Sync linked warranty cards if updated
@@ -1689,16 +1720,21 @@ export default function App() {
     if (updatedTicket.debtAmount && updatedTicket.debtAmount > 0) {
       if (existingDebtIdx > -1) {
         const nextDebts = [...debts];
+        const existing = nextDebts[existingDebtIdx];
+        const totalPaid = (existing.payments || []).reduce((sum, p) => sum + p.amount, 0);
+        const newRemaining = Math.max(0, updatedTicket.debtAmount - totalPaid);
+
         nextDebts[existingDebtIdx] = {
-          ...nextDebts[existingDebtIdx],
+          ...existing,
           invoiceId: invId,
           invoiceNumber: invNum,
           customerId: updatedTicket.customerId,
           customerName: updatedTicket.customerName,
           customerPhone: updatedTicket.customerPhone,
-          amount: updatedTicket.actualCost || updatedTicket.estimatedCost,
-          remainingAmount: updatedTicket.debtAmount,
+          amount: updatedTicket.debtAmount,
+          remainingAmount: newRemaining,
           dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          status: newRemaining === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending'),
           note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`
         };
         saveDebts(nextDebts);
@@ -1710,18 +1746,22 @@ export default function App() {
           customerId: updatedTicket.customerId,
           customerName: updatedTicket.customerName,
           customerPhone: updatedTicket.customerPhone,
-          amount: updatedTicket.actualCost || updatedTicket.estimatedCost,
+          amount: updatedTicket.debtAmount,
           remainingAmount: updatedTicket.debtAmount,
           dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          status: updatedTicket.debtAmount === (updatedTicket.actualCost || updatedTicket.estimatedCost) ? 'pending' : 'partial',
+          status: 'pending',
           createdAt: updatedTicket.deliveredAt ? new Date(updatedTicket.deliveredAt).toISOString() : new Date().toISOString(),
-          note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`
+          note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`,
+          payments: []
         };
         saveDebts([...debts, newDebt]);
       }
     } else if (existingDebtIdx > -1) {
-      const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
-      saveDebts(nextDebts);
+      const existing = debts[existingDebtIdx];
+      if (!existing.payments || existing.payments.length === 0) {
+        const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
+        saveDebts(nextDebts);
+      }
     }
 
     if (updatedTicket.warrantyUntil) {

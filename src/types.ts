@@ -4,8 +4,11 @@ export interface ProductIMEI {
   imei: string;
   status: 'in_stock' | 'sold';
   addedAt: string;
+  createdAt?: string;
   invoiceId?: string; // Links to the invoice when sold
 }
+
+export type ProductImei = ProductIMEI;
 
 export interface Supplier {
   id: string;
@@ -84,6 +87,8 @@ export interface Debt {
   createdAt: string;
   note?: string;
   payments?: DebtPayment[];
+  invoiceTotalAmount?: number;
+  downPayment?: number;
 }
 
 export type UserRole = 'admin' | 'sales' | 'technician';
