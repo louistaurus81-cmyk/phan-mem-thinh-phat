@@ -27,6 +27,7 @@ import {
   Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { calculateFinancialStats, formatVND, getItemCostPrice, getLocalDateStr, isRepairInvoice } from '../utils/finance';
 
 interface OwnerDashboardProps {
   products: Product[];
@@ -81,10 +82,11 @@ export default function OwnerDashboard({
     return d.toISOString().slice(0, 10);
   }, []);
 
-  // Filter invoices based on selected time range
+  // Filter invoices based on selected time range (excluding synthetic repair invoices to prevent double-counting)
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
-      const invDate = inv.createdAt.slice(0, 10);
+      if (isRepairInvoice(inv)) return false;
+      const invDate = getLocalDateStr(inv.createdAt);
       if (timeRange === 'today') return invDate === todayStr;
       if (timeRange === 'yesterday') return invDate === yesterdayStr;
       if (timeRange === '7days') return invDate >= sevenDaysAgoStr;
@@ -93,59 +95,49 @@ export default function OwnerDashboard({
     });
   }, [invoices, timeRange, todayStr, yesterdayStr, sevenDaysAgoStr, firstDayOfMonthStr]);
 
-  // Today's specific invoices for notification feed
+  // Today's specific invoices for notification feed (excluding synthetic repair invoices)
   const todayInvoices = useMemo(() => {
-    return invoices.filter(inv => inv.createdAt.slice(0, 10) === todayStr);
+    return invoices.filter(inv => !isRepairInvoice(inv) && getLocalDateStr(inv.createdAt) === todayStr);
   }, [invoices, todayStr]);
 
-  // Format currency
-  const formatVND = (num: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
-  };
-
-  // Calculations for current selected range
+  // Calculations for current selected range using single source of truth engine
   const rangeStats = useMemo(() => {
-    let totalSales = 0;
-    let totalSalesCost = 0;
+    let startDate: string | undefined;
+    let endDate: string | undefined;
 
-    filteredInvoices.forEach(inv => {
-      totalSales += inv.totalAmount;
-      inv.items.forEach(item => {
-        const prod = products.find(p => p.id === item.productId);
-        const itemCost = prod ? prod.cost : item.price * 0.75;
-        totalSalesCost += itemCost * item.quantity;
-      });
+    if (timeRange === 'today') {
+      startDate = todayStr;
+      endDate = todayStr;
+    } else if (timeRange === 'yesterday') {
+      startDate = yesterdayStr;
+      endDate = yesterdayStr;
+    } else if (timeRange === '7days') {
+      startDate = sevenDaysAgoStr;
+      endDate = todayStr;
+    } else if (timeRange === 'month') {
+      startDate = firstDayOfMonthStr;
+      endDate = todayStr;
+    }
+
+    const fin = calculateFinancialStats({
+      invoices,
+      repairs,
+      products,
+      debts,
+      startDate,
+      endDate
     });
-
-    const salesProfit = totalSales - totalSalesCost;
-
-    // Filter repairs completed in time range
-    const rangeRepairs = repairs.filter(r => {
-      const rDate = (r.deliveredAt || r.updatedAt || r.createdAt).slice(0, 10);
-      if (r.status !== 'completed' && r.status !== 'delivered') return false;
-      if (timeRange === 'today') return rDate === todayStr;
-      if (timeRange === 'yesterday') return rDate === yesterdayStr;
-      if (timeRange === '7days') return rDate >= sevenDaysAgoStr;
-      if (timeRange === 'month') return rDate >= firstDayOfMonthStr;
-      return true;
-    });
-
-    const totalRepairRevenue = rangeRepairs.reduce((sum, r) => sum + (r.actualCost || r.estimatedCost || 0), 0);
-    const totalRepairProfit = totalRepairRevenue * 0.6; // estimated 60% margin for service labor
-
-    const grandRevenue = totalSales + totalRepairRevenue;
-    const grandProfit = salesProfit + totalRepairProfit;
 
     return {
-      totalSales,
-      salesProfit,
-      totalRepairRevenue,
-      grandRevenue,
-      grandProfit,
-      orderCount: filteredInvoices.length,
-      repairCount: rangeRepairs.length
+      totalSales: fin.salesRevenue,
+      salesProfit: fin.salesProfit,
+      totalRepairRevenue: fin.repairsRevenue,
+      grandRevenue: fin.totalRevenue,
+      grandProfit: fin.totalProfit,
+      orderCount: fin.orderCount,
+      repairCount: fin.repairCount
     };
-  }, [filteredInvoices, products, repairs, timeRange, todayStr, yesterdayStr, sevenDaysAgoStr, firstDayOfMonthStr]);
+  }, [invoices, repairs, products, debts, timeRange, todayStr, yesterdayStr, sevenDaysAgoStr, firstDayOfMonthStr]);
 
   // Total Inventory Capital Value
   const inventoryMetrics = useMemo(() => {
@@ -201,8 +193,8 @@ export default function OwnerDashboard({
 
       let invCost = 0;
       inv.items.forEach(item => {
-        const prod = products.find(p => p.id === item.productId);
-        invCost += (prod ? prod.cost : item.price * 0.75) * item.quantity;
+        const itemCost = getItemCostPrice(item, products);
+        invCost += itemCost * item.quantity;
       });
 
       staffMap[staffName].orderCount += 1;
@@ -624,8 +616,8 @@ export default function OwnerDashboard({
                 // Calculate item profit
                 let invCost = 0;
                 inv.items.forEach(item => {
-                  const prod = products.find(p => p.id === item.productId);
-                  invCost += (prod ? prod.cost : item.price * 0.75) * item.quantity;
+                  const itemCost = getItemCostPrice(item, products);
+                  invCost += itemCost * item.quantity;
                 });
                 const estProfit = inv.totalAmount - invCost;
 

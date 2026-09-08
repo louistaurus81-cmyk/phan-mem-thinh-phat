@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Product, SalesInvoice, RepairTicket, WarrantyCard } from '../types';
+import { Product, SalesInvoice, RepairTicket, WarrantyCard, Debt } from '../types';
 import { 
   TrendingUp, 
   Wrench, 
@@ -12,12 +12,14 @@ import {
   Briefcase
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { calculateFinancialStats, formatVND, getLocalDateStr, isRepairInvoice } from '../utils/finance';
 
 interface DashboardProps {
   products: Product[];
   invoices: SalesInvoice[];
   repairs: RepairTicket[];
   warranties: WarrantyCard[];
+  debts?: Debt[];
   onNavigate: (tab: string) => void;
   onQuickRepair: () => void;
   onQuickInvoice: () => void;
@@ -28,84 +30,71 @@ export default function Dashboard({
   invoices,
   repairs,
   warranties,
+  debts = [],
   onNavigate,
   onQuickRepair,
   onQuickInvoice
 }: DashboardProps) {
 
-  // Calculate statistics
+  // Calculate statistics using the single source of truth engine
   const stats = useMemo(() => {
-    // Total sales revenue
-    const totalSales = invoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
-    
-    // Repair revenue (actual cost of completed & delivered tickets)
-    const totalRepairs = repairs
-      .filter(r => r.status === 'completed' || r.status === 'delivered')
-      .reduce((sum, r) => sum + (r.actualCost || r.estimatedCost || 0), 0);
-    
-    // Active repair tickets (not delivered)
-    const activeRepairsCount = repairs.filter(r => r.status !== 'delivered').length;
-    const checkingCount = repairs.filter(r => r.status === 'checking').length;
-    const repairingCount = repairs.filter(r => r.status === 'repairing').length;
-    const completedCount = repairs.filter(r => r.status === 'completed').length;
+    const fin = calculateFinancialStats({
+      invoices,
+      repairs,
+      products,
+      debts
+    });
 
-    // Active warranties
     const activeWarrantiesCount = warranties.filter(w => w.status === 'active').length;
 
-    // Calculate profit (Sales: price - cost, Repairs: actualCost - parts cost estimated at 40% value)
-    const salesCost = invoices.reduce((sum, inv) => {
-      return sum + inv.items.reduce((itemSum, item) => {
-        const prod = products.find(p => p.id === item.productId);
-        const costPrice = prod ? prod.cost : item.price * 0.75; // fallback cost
-        return itemSum + (costPrice * item.quantity);
-      }, 0);
-    }, 0);
-
-    const salesProfit = totalSales - salesCost;
-    const repairProfit = totalRepairs * 0.6; // Assuming 60% profit margin on repair services (labor)
-    const totalProfit = salesProfit + repairProfit;
-
     return {
-      totalSales,
-      totalRepairs,
-      revenue: totalSales + totalRepairs,
-      profit: totalProfit,
-      activeRepairs: activeRepairsCount,
+      totalSales: fin.salesRevenue,
+      totalRepairs: fin.repairsRevenue,
+      revenue: fin.totalRevenue,
+      profit: fin.totalProfit,
+      activeRepairs: fin.activeRepairsCount,
       activeWarranties: activeWarrantiesCount,
-      repairDistribution: {
-        checking: checkingCount,
-        repairing: repairingCount,
-        completed: completedCount
-      }
+      repairDistribution: fin.repairDistribution,
+      totalRemainingDebt: fin.totalRemainingDebt
     };
-  }, [products, invoices, repairs, warranties]);
+  }, [products, invoices, repairs, warranties, debts]);
 
-  // Format money to VND
-  const formatVND = (value: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value);
-  };
-
-  // Generate monthly revenue trend for the last 6 days based on invoices + repairs
+  // Generate real daily revenue trend for the last 7 days based on real invoices + repairs
   const chartData = useMemo(() => {
-    const days = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật'];
-    const currentDayIdx = new Date().getDay(); // 0 is Sun, 1 is Mon...
-    
-    // Rotate days to show up to today
-    const sortedDays = [...days.slice(currentDayIdx), ...days.slice(0, currentDayIdx)];
-    
-    // Generate realistic historical daily revenue heights for mock visual chart
-    const salesValues = [12000000, 18500000, 8900000, 15000000, 22000000, stats.totalSales / 30 + 1000000, stats.totalSales / 15 + 500000];
-    const repairValues = [1500000, 2400000, 1100000, 3200000, 1800000, stats.totalRepairs / 20 + 200000, stats.totalRepairs / 10 + 300000];
+    const dayNames = ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+    const result = [];
+    const today = new Date();
 
-    return sortedDays.map((day, i) => ({
-      day,
-      sales: salesValues[i % salesValues.length],
-      repairs: repairValues[i % repairValues.length],
-      total: salesValues[i % salesValues.length] + repairValues[i % repairValues.length]
-    }));
-  }, [stats]);
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dateStr = getLocalDateStr(d);
+      const dayLabel = dayNames[d.getDay()];
 
-  const maxChartValue = Math.max(...chartData.map(d => d.total), 10000000);
+      // Real sales invoices on this date (excluding repair invoices)
+      const daySales = invoices
+        .filter(inv => !isRepairInvoice(inv) && getLocalDateStr(inv.createdAt) === dateStr)
+        .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+
+      // Real completed/delivered repairs on this date
+      const dayRepairs = repairs
+        .filter(r => (r.status === 'completed' || r.status === 'delivered') && 
+          (getLocalDateStr(r.deliveredAt) === dateStr || getLocalDateStr(r.createdAt) === dateStr))
+        .reduce((sum, r) => sum + (r.actualCost || r.estimatedCost || 0), 0);
+
+      result.push({
+        day: dayLabel,
+        date: dateStr,
+        sales: daySales,
+        repairs: dayRepairs,
+        total: daySales + dayRepairs
+      });
+    }
+
+    return result;
+  }, [invoices, repairs]);
+
+  const maxChartValue = Math.max(...chartData.map(d => d.total), 5000000);
 
   return (
     <div id="dashboard-view" className="space-y-6">

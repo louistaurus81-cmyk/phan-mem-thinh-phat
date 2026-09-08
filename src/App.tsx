@@ -26,6 +26,13 @@ import {
   INITIAL_REPAIRS, 
   INITIAL_WARRANTIES 
 } from './mockData';
+import { 
+  isRepairInvoice, 
+  cleanDocumentNumber, 
+  isExactDebtInvoiceMatch, 
+  isExactDebtRepairMatch, 
+  reconcileDebtBalance 
+} from './utils/finance';
 import Dashboard from './components/Dashboard';
 import SalesManager from './components/SalesManager';
 import RepairManager from './components/RepairManager';
@@ -121,80 +128,12 @@ const syncProductsStockWithImeis = (prods: Product[], ims: ProductIMEI[]): Produ
   });
 };
 
-const cleanDocNumber = (str?: string) => {
-  if (!str) return '';
-  return str
-    .replace(/^#+/, '')
-    .trim()
-    .replace(/^(HD|REP|PC|HD-REP|HD-PC|BUILD|PC-BUILD)-?/i, '')
-    .replace(/^#+/, '')
-    .trim();
-};
-
 const isInvoiceMatchDebt = (i: SalesInvoice, targetDebt: Debt) => {
-  if (!i || !targetDebt) return false;
-
-  // 1. Direct ID matching
-  if (targetDebt.invoiceId && (i.id === targetDebt.invoiceId || i.invoiceNumber === targetDebt.invoiceId)) {
-    return true;
-  }
-  if (targetDebt.id && (targetDebt.id === `debt_${i.id}` || targetDebt.id.includes(`inv_${i.id}`))) {
-    return true;
-  }
-
-  const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
-  const cleanInvNum = cleanDocNumber(i.invoiceNumber);
-
-  // 2. Strict exact document number matching (NEVER use partial endsWith)
-  if (cleanDebtNum && cleanInvNum) {
-    return cleanDebtNum === cleanInvNum;
-  }
-
-  if (targetDebt.invoiceNumber && i.invoiceNumber) {
-    return targetDebt.invoiceNumber.trim() === i.invoiceNumber.trim();
-  }
-
-  // 3. Fallback only if document numbers are missing: same customer and identical timestamp and amount
-  if (targetDebt.customerId && i.customerId === targetDebt.customerId) {
-    if (i.debtAmount && (i.debtAmount === targetDebt.amount || i.debtAmount === targetDebt.remainingAmount) && i.createdAt === targetDebt.createdAt) {
-      return true;
-    }
-  }
-
-  return false;
+  return isExactDebtInvoiceMatch(targetDebt, i);
 };
 
 const isRepairMatchDebt = (r: RepairTicket, targetDebt: Debt) => {
-  if (!r || !targetDebt) return false;
-
-  // 1. Direct ID matching
-  if (targetDebt.invoiceId && (targetDebt.invoiceId === `inv_repair_${r.id}` || targetDebt.invoiceId === r.id)) {
-    return true;
-  }
-  if (targetDebt.id && targetDebt.id.includes(`rep_${r.id}`)) {
-    return true;
-  }
-
-  const cleanTicketNum = cleanDocNumber(r.ticketNumber);
-  const cleanDebtNum = cleanDocNumber(targetDebt.invoiceNumber);
-
-  // 2. Strict exact ticket number matching
-  if (cleanDebtNum && cleanTicketNum) {
-    return cleanDebtNum === cleanTicketNum;
-  }
-
-  if (targetDebt.invoiceNumber && targetDebt.invoiceNumber === `HD-REP-${cleanTicketNum}`) {
-    return true;
-  }
-
-  // 3. Fallback only if ticket numbers are missing
-  if (targetDebt.customerId && r.customerId === targetDebt.customerId) {
-    if (r.debtAmount && (r.debtAmount === targetDebt.amount || r.debtAmount === targetDebt.remainingAmount) && r.createdAt === targetDebt.createdAt) {
-      return true;
-    }
-  }
-
-  return false;
+  return isExactDebtRepairMatch(targetDebt, r);
 };
 
 const deduplicateAndSyncDebts = (
@@ -211,73 +150,35 @@ const deduplicateAndSyncDebts = (
   let nextInvoices = [...allInvoices];
   let nextRepairs = [...allRepairs];
 
-  // 0. Self-Healing & Accuracy Audit:
-  // Normalize debt amounts, restore any mistakenly zeroed or auto-paid debts
+  // 1. Reconcile every debt mathematically (payments sum determine remaining balance)
   const verifiedDebts: Debt[] = allDebts.map(debt => {
-    let d = { ...debt };
-    const inv = nextInvoices.find(i => isInvoiceMatchDebt(i, d));
-    const rep = nextRepairs.find(r => isRepairMatchDebt(r, d));
-    const recordedPayments = d.payments || [];
-    const sumCollected = recordedPayments.reduce((s, p) => s + (p.amount || 0), 0);
-
-    // Case A: Debt amount was mistakenly set to full invoice total (e.g. 10.300.000đ instead of 1.000.000đ debt)
-    if (inv && inv.debtAmount && inv.debtAmount > 0 && inv.totalAmount > inv.debtAmount) {
-      if (d.amount === inv.totalAmount && d.remainingAmount <= inv.debtAmount && recordedPayments.length === 0) {
-        d.amount = inv.debtAmount;
-        d.remainingAmount = inv.debtAmount;
-        d.status = 'pending';
-        d.invoiceTotalAmount = inv.totalAmount;
-        d.downPayment = inv.totalAmount - inv.debtAmount;
-        hasChanged = true;
-      }
+    const reconciled = reconcileDebtBalance(debt);
+    if (reconciled.remainingAmount !== debt.remainingAmount || reconciled.status !== debt.status) {
+      hasChanged = true;
     }
-
-    // Case B: Debt was incorrectly marked as 'paid' or remainingAmount: 0 even though no payments exist
-    // and the source invoice/repair still has debtAmount > 0
-    if (recordedPayments.length === 0 && (d.status === 'paid' || d.remainingAmount === 0)) {
-      const actualSourceDebt = inv?.debtAmount || rep?.debtAmount;
-      if (actualSourceDebt && actualSourceDebt > 0) {
-        d.amount = actualSourceDebt;
-        d.remainingAmount = actualSourceDebt;
-        d.status = 'pending';
-        hasChanged = true;
-      }
-    }
-
-    // Case C: Debt has recorded payments -> remainingAmount MUST strictly equal amount - sumCollected
-    if (recordedPayments.length > 0) {
-      const calculatedRemaining = Math.max(0, d.amount - sumCollected);
-      if (d.remainingAmount !== calculatedRemaining) {
-        d.remainingAmount = calculatedRemaining;
-        d.status = calculatedRemaining === 0 ? 'paid' : 'partial';
-        hasChanged = true;
-      }
-    }
-
-    return d;
+    return reconciled;
   });
 
-  // 1. Group duplicate debts together strictly
+  // 2. Strict grouping: Only merge if exact same ID or exact same invoiceId/documentNumber
   const debtGroups: Debt[][] = [];
 
   verifiedDebts.forEach(debt => {
-    const cleanNum = cleanDocNumber(debt.invoiceNumber);
+    const cleanDebtDoc = cleanDocumentNumber(debt.invoiceNumber);
 
     const matchingGroup = debtGroups.find(group => {
       return group.some(existing => {
         if (existing.id === debt.id) return true;
 
-        const existingClean = cleanDocNumber(existing.invoiceNumber);
-
-        // If both have document numbers, group ONLY IF clean numbers are identical
-        if (cleanNum && existingClean) {
-          return cleanNum === existingClean;
+        // Both have exact identical non-empty invoiceId
+        if (debt.invoiceId && existing.invoiceId && debt.invoiceId === existing.invoiceId) {
+          return true;
         }
 
-        // Direct invoiceId match
-        if (debt.invoiceId && existing.invoiceId && debt.invoiceId === existing.invoiceId) return true;
-
-        if (debt.invoiceNumber && existing.invoiceNumber && debt.invoiceNumber === existing.invoiceNumber) return true;
+        // Both have exact identical document number (retaining prefix HD- vs REP-)
+        const existingCleanDoc = cleanDocumentNumber(existing.invoiceNumber);
+        if (cleanDebtDoc && existingCleanDoc && cleanDebtDoc === existingCleanDoc) {
+          return true;
+        }
 
         return false;
       });
@@ -290,7 +191,7 @@ const deduplicateAndSyncDebts = (
     }
   });
 
-  // 2. Consolidate each group safely
+  // 3. Consolidate genuine duplicate debts without losing payment records
   const consolidatedDebts: Debt[] = debtGroups.map(group => {
     if (group.length === 1) return group[0];
 
@@ -306,7 +207,7 @@ const deduplicateAndSyncDebts = (
 
     const primary = group[0];
 
-    // Merge all unique payments
+    // Merge unique payments
     const allPayments: DebtPayment[] = [];
     group.forEach(g => {
       (g.payments || []).forEach(p => {
@@ -316,33 +217,22 @@ const deduplicateAndSyncDebts = (
       });
     });
 
-    const totalPaidFromPayments = allPayments.reduce((sum, p) => sum + p.amount, 0);
-    const newRemaining = Math.max(0, primary.amount - totalPaidFromPayments);
+    const maxPrincipal = Math.max(...group.map(g => g.amount || 0), primary.amount);
 
-    return {
+    return reconcileDebtBalance({
       ...primary,
-      remainingAmount: newRemaining,
-      status: newRemaining === 0 ? ('paid' as const) : (totalPaidFromPayments > 0 ? ('partial' as const) : ('pending' as const)),
+      amount: maxPrincipal,
       payments: allPayments
-    };
+    });
   });
 
-  // 3. Keep invoices and repairs in sync with debt state
-  // CRITICAL RULE: NEVER auto-zero debts from invoices/repairs!
-  // Invoices and repairs reflect what is collected in the Debt tab.
+  // 4. Update linked invoice and repair ticket debtAmounts based on verified debt status
   consolidatedDebts.forEach((debt) => {
-    // Sync invoice
-    const invIdx = nextInvoices.findIndex(i => isInvoiceMatchDebt(i, debt));
+    // Sync to sales invoice
+    const invIdx = nextInvoices.findIndex(i => isExactDebtInvoiceMatch(debt, i));
     if (invIdx > -1) {
       const inv = nextInvoices[invIdx];
-      if (debt.remainingAmount === 0 && inv.debtAmount && inv.debtAmount > 0) {
-        nextInvoices[invIdx] = {
-          ...inv,
-          debtAmount: 0,
-          paymentMethod: inv.paymentMethod === 'Ghi nợ' ? 'Tiền mặt' : inv.paymentMethod
-        };
-        hasChanged = true;
-      } else if (debt.remainingAmount > 0 && inv.debtAmount !== debt.remainingAmount) {
+      if (inv.debtAmount !== debt.remainingAmount) {
         nextInvoices[invIdx] = {
           ...inv,
           debtAmount: debt.remainingAmount
@@ -351,17 +241,11 @@ const deduplicateAndSyncDebts = (
       }
     }
 
-    // Sync repair
-    const repIdx = nextRepairs.findIndex(r => isRepairMatchDebt(r, debt));
+    // Sync to repair ticket
+    const repIdx = nextRepairs.findIndex(r => isExactDebtRepairMatch(debt, r));
     if (repIdx > -1) {
       const rep = nextRepairs[repIdx];
-      if (debt.remainingAmount === 0 && rep.debtAmount && rep.debtAmount > 0) {
-        nextRepairs[repIdx] = {
-          ...rep,
-          debtAmount: 0
-        };
-        hasChanged = true;
-      } else if (debt.remainingAmount > 0 && rep.debtAmount !== debt.remainingAmount) {
+      if (rep.debtAmount !== debt.remainingAmount) {
         nextRepairs[repIdx] = {
           ...rep,
           debtAmount: debt.remainingAmount
@@ -870,7 +754,7 @@ export default function App() {
 
     repairs.forEach(rep => {
       if (rep.debtAmount && rep.debtAmount > 0) {
-        const cleanTicketNum = cleanDocNumber(rep.ticketNumber);
+        const cleanTicketNum = cleanDocumentNumber(rep.ticketNumber).replace(/^REP-/, '');
         const invId = `inv_repair_${rep.id}`;
         const invNum = `HD-REP-${cleanTicketNum}`;
 
@@ -897,6 +781,9 @@ export default function App() {
     });
 
     nextInvoices.forEach(inv => {
+      // CRITICAL: Skip synthetic repair invoices! Repair debts are already owned by the repair ticket
+      if (isRepairInvoice(inv)) return;
+
       if (inv.debtAmount && inv.debtAmount > 0) {
         const existingIdx = nextDebts.findIndex(d => isInvoiceMatchDebt(inv, d));
 
@@ -2408,6 +2295,7 @@ export default function App() {
                 invoices={invoices}
                 repairs={repairs}
                 warranties={warranties}
+                debts={debts}
                 onNavigate={setActiveTab}
                 onQuickRepair={() => setActiveTab('repairs')}
                 onQuickInvoice={() => setActiveTab('sales')}

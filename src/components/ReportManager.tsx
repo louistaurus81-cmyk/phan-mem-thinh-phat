@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import TPLogo from './TPLogo';
+import { calculateFinancialStats, formatVND, getItemCostPrice, getLocalDateStr, isRepairInvoice } from '../utils/finance';
 
 interface ReportManagerProps {
   products: Product[];
@@ -234,10 +235,11 @@ export default function ReportManager({
 
   // ===================== DATA FILTERING IN RANGE =====================
 
-  // 1. Invoices in range
+  // 1. Invoices in range (excluding synthetic repair invoices to prevent double-counting)
   const rangeInvoices = useMemo(() => {
     return invoices.filter(inv => {
-      const d = getDateStr(inv.createdAt);
+      if (isRepairInvoice(inv)) return false;
+      const d = getLocalDateStr(inv.createdAt);
       return d >= startDate && d <= endDate;
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [invoices, startDate, endDate]);
@@ -245,7 +247,7 @@ export default function ReportManager({
   // 2. Repairs in range (completed or delivered)
   const rangeRepairs = useMemo(() => {
     return repairs.filter(r => {
-      const d = getDateStr(r.deliveredAt || r.updatedAt || r.createdAt);
+      const d = getLocalDateStr(r.deliveredAt || r.updatedAt || r.createdAt);
       const isFin = r.status === 'completed' || r.status === 'delivered';
       return isFin && d >= startDate && d <= endDate;
     }).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
@@ -254,7 +256,7 @@ export default function ReportManager({
   // 3. Debts incurred in range
   const rangeDebtsCreated = useMemo(() => {
     return debts.filter(d => {
-      const createdDate = getDateStr(d.createdAt);
+      const createdDate = getLocalDateStr(d.createdAt);
       return createdDate >= startDate && createdDate <= endDate;
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [debts, startDate, endDate]);
@@ -264,7 +266,7 @@ export default function ReportManager({
     const list: { debt: Debt; payment: any }[] = [];
     debts.forEach(d => {
       (d.payments || []).forEach(p => {
-        const pDate = getDateStr(p.paidAt);
+        const pDate = getLocalDateStr(p.paidAt);
         if (pDate >= startDate && pDate <= endDate) {
           list.push({ debt: d, payment: p });
         }
@@ -276,9 +278,15 @@ export default function ReportManager({
   // ===================== COMPREHENSIVE STATS CALCULATION =====================
 
   const stats = useMemo(() => {
-    // A. Revenue
-    let salesTotal = 0;
-    let salesCostTotal = 0;
+    const fin = calculateFinancialStats({
+      invoices,
+      repairs,
+      products,
+      debts,
+      startDate,
+      endDate
+    });
+
     let cashSales = 0;
     let bankSales = 0;
     let debtSalesAmount = 0;
@@ -294,8 +302,6 @@ export default function ReportManager({
     }>();
 
     rangeInvoices.forEach(inv => {
-      salesTotal += inv.totalAmount;
-
       if (inv.paymentMethod === 'Tiền mặt') cashSales += (inv.totalAmount - (inv.debtAmount || 0));
       else if (inv.paymentMethod === 'Chuyển khoản' || inv.paymentMethod === 'Thẻ' || inv.paymentMethod === 'Quẹt thẻ') {
         bankSales += (inv.totalAmount - (inv.debtAmount || 0));
@@ -305,7 +311,6 @@ export default function ReportManager({
         debtSalesAmount += inv.debtAmount;
       }
 
-      // Cost & Profit per invoice item
       inv.items.forEach(item => {
         const cleanName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
         const prod = products.find(p => 
@@ -315,14 +320,11 @@ export default function ReportManager({
           p.name === cleanName
         );
 
-        const unitCost = prod && prod.cost > 0 ? prod.cost : item.price * 0.75;
+        const unitCost = getItemCostPrice(item, products);
         const totalItemCost = unitCost * item.quantity;
         const totalItemRevenue = item.price * item.quantity;
         const totalItemProfit = totalItemRevenue - totalItemCost;
 
-        salesCostTotal += totalItemCost;
-
-        // Group by product
         const key = prod ? prod.id : cleanName;
         const existing = productStatsMap.get(key) || {
           name: cleanName || item.productName,
@@ -341,65 +343,31 @@ export default function ReportManager({
       });
     });
 
-    const salesProfit = salesTotal - salesCostTotal;
-
-    // B. Repairs Revenue & Profit
-    let repairsRevenueTotal = 0;
-    let repairsPartsCost = 0;
-
-    rangeRepairs.forEach(rep => {
-      const rev = rep.actualCost || rep.estimatedCost || 0;
-      repairsRevenueTotal += rev;
-
-      if (rep.usedParts && rep.usedParts.length > 0) {
-        rep.usedParts.forEach(pt => {
-          const prod = products.find(p => p.id === pt.productId || p.name === pt.name);
-          const c = prod && prod.cost > 0 ? prod.cost : pt.price * 0.75;
-          repairsPartsCost += c * pt.quantity;
-        });
-      }
-    });
-
-    // Repair profit is (Revenue - Parts Cost) * 0.85 (labor/profit margin) or at least 60%
-    const repairsProfit = Math.max(0, repairsRevenueTotal - repairsPartsCost) * 0.8 + (repairsPartsCost * 0.25);
-
-    // Grand Totals
-    const totalRevenue = salesTotal + repairsRevenueTotal;
-    const totalCost = salesCostTotal + repairsPartsCost;
-    const grossProfit = salesProfit + repairsProfit;
-    const profitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
-
-    // C. Debts
-    const totalNewDebts = rangeDebtsCreated.reduce((sum, d) => sum + d.amount, 0);
-    const totalNewDebtsRemaining = rangeDebtsCreated.reduce((sum, d) => sum + d.remainingAmount, 0);
-    const totalDebtsCollected = rangeDebtPaymentsCollected.reduce((sum, p) => sum + p.payment.amount, 0);
-
-    // Top Profit Products array
     const topProducts = Array.from(productStatsMap.values())
       .sort((a, b) => b.profit - a.profit);
 
     return {
-      salesTotal,
-      salesCostTotal,
-      salesProfit,
-      repairsRevenueTotal,
-      repairsPartsCost,
-      repairsProfit,
-      totalRevenue,
-      totalCost,
-      grossProfit,
-      profitMargin,
+      salesTotal: fin.salesRevenue,
+      salesCostTotal: fin.salesCost,
+      salesProfit: fin.salesProfit,
+      repairsRevenueTotal: fin.repairsRevenue,
+      repairsPartsCost: fin.repairsPartsCost,
+      repairsProfit: fin.repairsProfit,
+      totalRevenue: fin.totalRevenue,
+      totalCost: fin.salesCost + fin.repairsPartsCost,
+      grossProfit: fin.totalProfit,
+      profitMargin: fin.profitMargin,
       cashSales,
       bankSales,
       debtSalesAmount,
-      totalNewDebts,
-      totalNewDebtsRemaining,
-      totalDebtsCollected,
-      invoiceCount: rangeInvoices.length,
-      repairCount: rangeRepairs.length,
+      totalNewDebts: fin.totalDebtsCreated,
+      totalNewDebtsRemaining: fin.totalRemainingDebt,
+      totalDebtsCollected: fin.totalDebtCollected,
+      invoiceCount: fin.orderCount,
+      repairCount: fin.repairCount,
       topProducts
     };
-  }, [rangeInvoices, rangeRepairs, rangeDebtsCreated, rangeDebtPaymentsCollected, products]);
+  }, [rangeInvoices, invoices, repairs, debts, products, startDate, endDate]);
 
   // ===================== DAILY TIMELINE CHART DATA =====================
   const dailyTimeline = useMemo(() => {
@@ -427,11 +395,9 @@ export default function ReportManager({
         const mKey = inv.createdAt.slice(0, 7);
         const curr = monthMap.get(mKey) || { sales: 0, repairs: 0, profit: 0 };
         curr.sales += inv.totalAmount;
-        // estimate profit
         let invCost = 0;
         inv.items.forEach(it => {
-          const prod = products.find(p => p.id === it.productId || p.name === it.productName);
-          invCost += (prod && prod.cost > 0 ? prod.cost : it.price * 0.75) * it.quantity;
+          invCost += getItemCostPrice(it, products) * it.quantity;
         });
         curr.profit += (inv.totalAmount - invCost);
         monthMap.set(mKey, curr);
@@ -441,8 +407,13 @@ export default function ReportManager({
         const mKey = (rep.deliveredAt || rep.updatedAt || rep.createdAt).slice(0, 7);
         const curr = monthMap.get(mKey) || { sales: 0, repairs: 0, profit: 0 };
         const rev = rep.actualCost || rep.estimatedCost || 0;
+        let partsCost = 0;
+        (rep.usedParts || []).forEach(pt => {
+          const prod = products.find(p => p.id === pt.productId || p.name === pt.name);
+          partsCost += (prod && prod.cost > 0 ? prod.cost : pt.price * 0.75) * pt.quantity;
+        });
         curr.repairs += rev;
-        curr.profit += rev * 0.65;
+        curr.profit += Math.max(0, rev - partsCost);
         monthMap.set(mKey, curr);
       });
 
@@ -469,25 +440,29 @@ export default function ReportManager({
         let daySales = 0;
         let daySalesCost = 0;
         rangeInvoices.forEach(inv => {
-          if (getDateStr(inv.createdAt) === dStr) {
+          if (getLocalDateStr(inv.createdAt) === dStr) {
             daySales += inv.totalAmount;
             inv.items.forEach(it => {
-              const prod = products.find(p => p.id === it.productId || p.name === it.productName);
-              daySalesCost += (prod && prod.cost > 0 ? prod.cost : it.price * 0.75) * it.quantity;
+              daySalesCost += getItemCostPrice(it, products) * it.quantity;
             });
           }
         });
 
         // Repairs for this day
         let dayRepairs = 0;
+        let dayRepairsPartsCost = 0;
         rangeRepairs.forEach(rep => {
-          const rD = getDateStr(rep.deliveredAt || rep.updatedAt || rep.createdAt);
+          const rD = getLocalDateStr(rep.deliveredAt || rep.updatedAt || rep.createdAt);
           if (rD === dStr) {
             dayRepairs += (rep.actualCost || rep.estimatedCost || 0);
+            (rep.usedParts || []).forEach(pt => {
+              const prod = products.find(p => p.id === pt.productId || p.name === pt.name);
+              dayRepairsPartsCost += (prod && prod.cost > 0 ? prod.cost : pt.price * 0.75) * pt.quantity;
+            });
           }
         });
 
-        const dayProfit = (daySales - daySalesCost) + (dayRepairs * 0.65);
+        const dayProfit = (daySales - daySalesCost) + Math.max(0, dayRepairs - dayRepairsPartsCost);
 
         dataPoints.push({
           label: dayLabel,
