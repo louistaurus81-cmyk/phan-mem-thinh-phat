@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Debt, DebtPayment, Customer, SalesInvoice, PrintSettings, User, getUserPermissions } from '../types';
+import { printElementViaIframe } from '../utils/printHelper';
 import { 
   Search, 
   DollarSign, 
@@ -1206,14 +1207,9 @@ export default function DebtManager({
                 <button 
                   type="button"
                   onClick={() => {
-                    const printC = document.getElementById('print-debt-receipt-section')?.innerHTML;
-                    const originalC = document.body.innerHTML;
-                    if (printC) {
-                      document.body.innerHTML = printC;
-                      window.print();
-                      document.body.innerHTML = originalC;
-                      window.location.reload();
-                    }
+                    printElementViaIframe('print-debt-receipt-section', {
+                      title: `Phiếu thu nợ - ${printingPaymentReceipt.debt.customerName}`
+                    });
                   }}
                   className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl cursor-pointer flex items-center gap-1.5 transition"
                 >
@@ -1470,14 +1466,9 @@ export default function DebtManager({
                 <button 
                   type="button"
                   onClick={() => {
-                    const printC = document.getElementById('print-debt-invoice-section')?.innerHTML;
-                    const originalC = document.body.innerHTML;
-                    if (printC) {
-                      document.body.innerHTML = printC;
-                      window.print();
-                      document.body.innerHTML = originalC;
-                      window.location.reload();
-                    }
+                    printElementViaIframe('print-debt-invoice-section', {
+                      title: `Hóa đơn công nợ - ${viewingInvoiceDetails.invoiceNumber}`
+                    });
                   }}
                   className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl cursor-pointer flex items-center gap-1.5 transition"
                 >

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Product, SalesInvoice, InvoiceItem, Customer, Category, User, PrintSettings, ProductIMEI, Supplier, formatWarrantyText, formatAccountName, formatBankName, generateRandomIMEI, generateRandomBarcode, renderCode39SVG, getUserPermissions } from '../types';
+import { printElementViaIframe, printLabel } from '../utils/printHelper';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Plus, 
@@ -1288,7 +1289,7 @@ export default function SalesManager({
                   <th className="py-3 px-2">Mã SKU</th>
                   <th className="py-3 px-2">Tên Linh Kiện / Sản Phẩm</th>
                   <th className="py-3 px-2">Danh Mục</th>
-                  <th className="py-3 px-2">Giá Nhập</th>
+                  {currentUser?.role === 'admin' && <th className="py-3 px-2">Giá Nhập</th>}
                   <th className="py-3 px-2">Giá Xuất</th>
                   <th className="py-3 px-2">Bảo Hành</th>
                   <th className="py-3 px-2">Tồn Kho</th>
@@ -1319,7 +1320,11 @@ export default function SalesManager({
                           {prod.category}
                         </span>
                       </td>
-                      <td className="py-3.5 font-semibold text-rose-500">{formatVND(prod.cost)}</td>
+                      {currentUser?.role === 'admin' && (
+                        <td className="py-3.5 font-semibold text-rose-500">
+                          {typeof prod.cost === 'number' && prod.cost > 0 ? formatVND(prod.cost) : '---'}
+                        </td>
+                      )}
                       <td className="py-3.5 font-bold text-emerald-600">{formatVND(prod.price)}</td>
                       <td className="py-3.5 text-xs text-slate-500">{formatWarrantyText(prod.warrantyMonths)}</td>
                       <td className="py-3.5">
@@ -1751,19 +1756,21 @@ export default function SalesManager({
                   </label>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Vốn (Giá nhập - VNĐ)</label>
-                    <input 
-                      id="input-product-cost"
-                      type="number"
-                      required
-                      placeholder="e.g. 25000000"
-                      value={newProduct.cost ?? 0}
-                      onChange={e => setNewProduct({...newProduct, cost: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                    />
-                  </div>
+                <div className={`grid ${currentUser?.role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
+                  {currentUser?.role === 'admin' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Vốn (Giá nhập - VNĐ)</label>
+                      <input 
+                        id="input-product-cost"
+                        type="number"
+                        required
+                        placeholder="e.g. 25000000"
+                        value={newProduct.cost ?? 0}
+                        onChange={e => setNewProduct({...newProduct, cost: Number(e.target.value)})}
+                        className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Bán Lẻ (Giá xuất - VNĐ)</label>
                     <input 
@@ -1809,6 +1816,8 @@ export default function SalesManager({
                       <option value="12">12 Tháng bảo hành (Mặc định)</option>
                       <option value="24">24 Tháng bảo hành</option>
                       <option value="36">36 Tháng bảo hành</option>
+                      <option value="48">48 Tháng (4 năm) bảo hành</option>
+                      <option value="60">60 Tháng (5 năm) bảo hành</option>
                     </select>
                   </div>
                 </div>
@@ -1951,19 +1960,21 @@ export default function SalesManager({
                   </label>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Vốn (Giá nhập - VNĐ)</label>
-                    <input 
-                      id="edit-product-cost"
-                      type="number"
-                      required
-                      placeholder="e.g. 25000000"
-                      value={editingProduct.cost ?? 0}
-                      onChange={e => setEditingProduct({...editingProduct, cost: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                    />
-                  </div>
+                <div className={`grid ${currentUser?.role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
+                  {currentUser?.role === 'admin' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Vốn (Giá nhập - VNĐ)</label>
+                      <input 
+                        id="edit-product-cost"
+                        type="number"
+                        required
+                        placeholder="e.g. 25000000"
+                        value={editingProduct.cost ?? 0}
+                        onChange={e => setEditingProduct({...editingProduct, cost: Number(e.target.value)})}
+                        className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Bán Lẻ (Giá xuất - VNĐ)</label>
                     <input 
@@ -2008,6 +2019,8 @@ export default function SalesManager({
                       <option value="12">12 Tháng bảo hành (Mặc định)</option>
                       <option value="24">24 Tháng bảo hành</option>
                       <option value="36">36 Tháng bảo hành</option>
+                      <option value="48">48 Tháng (4 năm) bảo hành</option>
+                      <option value="60">60 Tháng (5 năm) bảo hành</option>
                     </select>
                   </div>
                 </div>
@@ -2211,14 +2224,9 @@ export default function SalesManager({
                   <button 
                     type="button"
                     onClick={() => {
-                      const printC = document.getElementById('print-retail-invoice-section')?.innerHTML;
-                      const originalC = document.body.innerHTML;
-                      if (printC) {
-                        document.body.innerHTML = printC;
-                        window.print();
-                        document.body.innerHTML = originalC;
-                        window.location.reload();
-                      }
+                      printElementViaIframe('print-retail-invoice-section', {
+                        title: `Hóa đơn bán hàng #${activeInvoiceDetails.invoiceNumber}`
+                      });
                     }}
                     className="px-3.5 py-2 bg-slate-950 hover:bg-slate-850 text-white font-extrabold text-xs rounded-xl cursor-pointer"
                   >
@@ -3285,14 +3293,10 @@ export default function SalesManager({
                 <button
                   type="button"
                   onClick={() => {
-                    const printC = document.getElementById('printable-barcode-sticker')?.innerHTML;
-                    const originalC = document.body.innerHTML;
-                    if (printC) {
-                      document.body.innerHTML = printC;
-                      window.print();
-                      document.body.innerHTML = originalC;
-                      window.location.reload();
-                    }
+                    printElementViaIframe('printable-barcode-sticker', {
+                      title: `Tem nhãn ${printingBarcode.productName}`,
+                      pageMargin: '0mm'
+                    });
                   }}
                   className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-xl cursor-pointer transition shadow-xs flex items-center justify-center gap-1"
                 >

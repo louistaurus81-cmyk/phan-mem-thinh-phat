@@ -292,11 +292,17 @@ export default function App() {
   const [dbLoading, setDbLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Load database state from fullstack Express API over LAN
-  const loadCentralData = async (silent = false) => {
+  // Load database state from fullstack Express API over LAN with RBAC token support
+  const loadCentralData = async (silent = false, overrideToken?: string) => {
     if (!silent) setIsSyncing(true);
     try {
-      const res = await fetch('/api/db');
+      const token = overrideToken || localStorage.getItem('thinhphat_v2_auth_token');
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch('/api/db', { headers });
       const payload = await res.json();
       if (payload.success && payload.db) {
         const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers, activities } = payload.db;
@@ -394,14 +400,28 @@ export default function App() {
     return () => clearInterval(pollInterval);
   }, []);
 
-  // Sync state mutation with express API
+  // Sync state mutation with express API with Bearer token authentication
   const syncWithServer = async (type: string, data: any[]) => {
     try {
-      await fetch('/api/save', {
+      const token = localStorage.getItem('thinhphat_v2_auth_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch('/api/save', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ type, data })
       });
+
+      const resData = await res.json();
+      if (!res.ok || resData.success === false) {
+        console.warn(`[RBAC] Lưu dữ liệu ${type} bị máy chủ từ chối:`, resData.error);
+        if (res.status === 401 && resData.expired) {
+          handleLogout();
+        }
+      }
     } catch (err) {
       console.error(`Lỗi đồng bộ dữ liệu ${type} lên máy chủ mạng LAN:`, err);
     }
@@ -1078,11 +1098,16 @@ export default function App() {
     };
   }, [currentUser]);
 
-  const handleLogin = (user: User) => {
+  const handleLogin = (user: User, token?: string) => {
     setCurrentUser(user);
     setIsAutoLoggedOut(false);
+    if (token) {
+      localStorage.setItem('thinhphat_v2_auth_token', token);
+    }
     localStorage.setItem('thinhphat_v2_current_user', JSON.stringify(user));
     localStorage.setItem('thinhphat_v2_last_activity', Date.now().toString());
+    // Immediately reload central database with user's specific role token (e.g. admin loads costs)
+    loadCentralData(false, token);
   };
 
   const handleLogout = () => {
@@ -1092,6 +1117,7 @@ export default function App() {
     setCurrentUser(null);
     localStorage.removeItem('thinhphat_v2_current_user');
     localStorage.removeItem('thinhphat_v2_last_activity');
+    localStorage.removeItem('thinhphat_v2_auth_token');
   };
 
   if (!currentUser) {
@@ -1144,6 +1170,21 @@ export default function App() {
   };
 
   const handleUpdateProductStock = (id: string, newStock: number) => {
+    if (currentUser?.role !== 'admin') {
+      alert('Từ chối truy cập (403 Forbidden): Thao tác điều chỉnh kho trực tiếp bắt buộc quyền Quản trị viên (Admin)!');
+      return;
+    }
+
+    const token = localStorage.getItem('thinhphat_v2_auth_token');
+    fetch('/api/inventory/adjust-stock', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ productId: id, newStock, reason: 'Điều chỉnh trực tiếp qua giao diện' })
+    }).catch(err => console.error('Lỗi API adjust-stock:', err));
+
     const targetProd = products.find(p => p.id === id);
     const updated = products.map(p => p.id === id ? { ...p, stock: newStock } : p);
     saveProducts(updated);
@@ -1453,92 +1494,278 @@ export default function App() {
     );
   };
 
+  /**
+   * Xóa hóa đơn bán hàng & Hoàn nguyên 100% tự động
+   * - Phục hồi số lượng tồn kho (stock = stock + quantity) cho hàng hóa không IMEI
+   * - Phục hồi trạng thái IMEI về 'in_stock' và xóa invoiceId
+   * - Đồng bộ lại tồn kho tổng qua syncProductsStockWithImeis
+   * - Hủy/gạch nợ trong danh sách công nợ (debts)
+   * - Hủy/xóa các thẻ bảo hành liên đới (warranties)
+   * - Hủy ghi nợ trên phiếu sửa chữa nếu hóa đơn này liên kết với dịch vụ sửa chữa
+   */
   const handleDeleteInvoice = (invoiceId: string) => {
-    const targetInvoice = invoices.find(inv => inv.id === invoiceId);
-    if (!targetInvoice) return;
-
-    let updatedProducts = [...products];
-    let updatedImeis = [...imeis];
-
-    // Revert stock & IMEIs
-    targetInvoice.items.forEach(item => {
-      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
-        item.imeis.forEach(im => {
-          if (!im) return;
-          const cleanIm = im.trim().toLowerCase();
-          const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
-          if (idx > -1) {
-            updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
-          }
-        });
-      }
-
-      const cleanItemName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
-      const prod = updatedProducts.find(p => 
-        p.id === item.productId || 
-        (p.sku && p.sku === item.productId) || 
-        p.name === item.productName ||
-        p.name === cleanItemName ||
-        item.productName.includes(p.name) ||
-        (cleanItemName && p.name.includes(cleanItemName))
-      );
-      if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
-        prod.stock += item.quantity;
-      }
-    });
-
-    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
-
-    saveProducts(updatedProducts, updatedImeis);
-    saveImeis(updatedImeis);
-
-    const nextInvoices = invoices.filter(inv => inv.id !== invoiceId);
-    saveInvoices(nextInvoices);
-
-    const nextDebts = debts.filter(d => !isInvoiceMatchDebt(targetInvoice, d));
-    saveDebts(nextDebts);
-
-    // Also clear debtAmount on any linked repair ticket
-    let repairsChanged = false;
-    const nextRepairs = repairs.map(rep => {
-      if (
-        targetInvoice.id === `inv_repair_${rep.id}` ||
-        (targetInvoice.invoiceNumber && (targetInvoice.invoiceNumber.includes(rep.ticketNumber) || targetInvoice.invoiceNumber.includes(rep.ticketNumber.replace(/^REP-/, '')))) ||
-        (targetInvoice.note && targetInvoice.note.includes(rep.ticketNumber))
-      ) {
-        if (rep.debtAmount && rep.debtAmount > 0) {
-          repairsChanged = true;
-          return {
-            ...rep,
-            debtAmount: 0,
-            debtDueDate: undefined
-          };
-        }
-      }
-      return rep;
-    });
-
-    if (repairsChanged) {
-      saveRepairs(nextRepairs);
+    if (currentUser?.role !== 'admin') {
+      alert('Từ chối truy cập (403 Forbidden): Thao tác XÓA hóa đơn bắt buộc quyền Quản trị viên (Admin)!');
+      return;
     }
 
-    // Also remove linked warranty cards
-    const invNum = targetInvoice.invoiceNumber;
-    const nextWarranties = warranties.filter(w => !(
-      (w.linkedInvoiceId && w.linkedInvoiceId === targetInvoice.id) ||
-      (w.serialNumber && (w.serialNumber === invNum || w.serialNumber.endsWith(`-${invNum}`))) ||
-      (w.notes && invNum && w.notes.includes(invNum)) ||
-      (invNum && w.productName.includes(invNum))
-    ));
-    saveWarranties(nextWarranties);
+    // Call server DELETE endpoint
+    const token = localStorage.getItem('thinhphat_v2_auth_token');
+    fetch(`/api/invoices/${invoiceId}`, {
+      method: 'DELETE',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    }).catch(err => console.error('Lỗi API delete invoice:', err));
 
-    logActivity(
-      'sale',
-      'Xóa hóa đơn bán hàng',
-      `Đã xóa vĩnh viễn hóa đơn ${targetInvoice.invoiceNumber} (${targetInvoice.customerName}) - Hoàn trả tồn kho & thu hồi bảo hành`,
-      targetInvoice.totalAmount,
-      'danger'
-    );
+    try {
+      const targetInvoice = invoices.find(inv => inv.id === invoiceId);
+      if (!targetInvoice) return;
+
+      let updatedProducts = [...products];
+      let updatedImeis = [...imeis];
+
+      // 1. Phục hồi trạng thái IMEI & Tồn kho
+      targetInvoice.items.forEach(item => {
+        // Phục hồi các IMEI được ghi rõ trong mục hàng
+        if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
+          item.imeis.forEach(im => {
+            if (!im) return;
+            const cleanIm = im.trim().toLowerCase();
+            const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
+            if (idx > -1) {
+              updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
+            }
+          });
+        }
+
+        // Phục hồi stock cho các mặt hàng không theo dõi IMEI
+        const cleanItemName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
+        const prod = updatedProducts.find(p => 
+          p.id === item.productId || 
+          (p.sku && p.sku === item.productId) || 
+          p.name === item.productName ||
+          p.name === cleanItemName ||
+          item.productName.includes(p.name) ||
+          (cleanItemName && p.name.includes(cleanItemName))
+        );
+        if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
+          prod.stock += (item.quantity || 1);
+        }
+      });
+
+      // Phục hồi toàn bộ IMEI trong kho có invoiceId trùng với hóa đơn này
+      updatedImeis = updatedImeis.map(i => {
+        if (i.invoiceId === targetInvoice.id) {
+          return { ...i, status: 'in_stock', invoiceId: undefined };
+        }
+        return i;
+      });
+
+      // Đồng bộ lại số lượng tồn kho sản phẩm với danh sách IMEI
+      updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
+
+      saveProducts(updatedProducts, updatedImeis);
+      saveImeis(updatedImeis);
+
+      // 2. Xóa hóa đơn khỏi danh sách
+      const nextInvoices = invoices.filter(inv => inv.id !== invoiceId);
+      saveInvoices(nextInvoices);
+
+      // 3. Hoàn nguyên / hủy công nợ liên quan
+      const nextDebts = debts.filter(d => !isInvoiceMatchDebt(targetInvoice, d));
+      saveDebts(nextDebts);
+
+      // 4. Xóa ghi nợ trên phiếu sửa chữa nếu hóa đơn này sinh ra từ dịch vụ sửa chữa
+      let repairsChanged = false;
+      const nextRepairs = repairs.map(rep => {
+        if (
+          targetInvoice.id === `inv_repair_${rep.id}` ||
+          (targetInvoice.invoiceNumber && (targetInvoice.invoiceNumber.includes(rep.ticketNumber) || targetInvoice.invoiceNumber.includes(rep.ticketNumber.replace(/^REP-/, '')))) ||
+          (targetInvoice.note && targetInvoice.note.includes(rep.ticketNumber))
+        ) {
+          if (rep.debtAmount && rep.debtAmount > 0) {
+            repairsChanged = true;
+            return {
+              ...rep,
+              debtAmount: 0,
+              debtDueDate: undefined
+            };
+          }
+        }
+        return rep;
+      });
+
+      if (repairsChanged) {
+        saveRepairs(nextRepairs);
+      }
+
+      // 5. Thu hồi / xóa thẻ bảo hành liên quan
+      const invNum = targetInvoice.invoiceNumber;
+      const nextWarranties = warranties.filter(w => !(
+        (w.linkedInvoiceId && w.linkedInvoiceId === targetInvoice.id) ||
+        (w.serialNumber && (w.serialNumber === invNum || w.serialNumber.endsWith(`-${invNum}`))) ||
+        (w.notes && invNum && w.notes.includes(invNum)) ||
+        (invNum && w.productName.includes(invNum))
+      ));
+      saveWarranties(nextWarranties);
+
+      logActivity(
+        'sale',
+        'Xóa hóa đơn bán hàng & Hoàn nguyên',
+        `Đã xóa hóa đơn ${targetInvoice.invoiceNumber} (${targetInvoice.customerName}) - Đã hoàn trả tồn kho, phục hồi IMEI, hủy công nợ & thu hồi bảo hành liên quan.`,
+        targetInvoice.totalAmount,
+        'danger'
+      );
+    } catch (err) {
+      console.error('Lỗi khi xóa hóa đơn:', err);
+      alert('Đã xảy ra sự cố khi hoàn nguyên hóa đơn. Vui lòng thử lại!');
+    }
+  };
+
+  /**
+   * Helper điều chỉnh tồn kho linh kiện sửa chữa:
+   * Chỉ khi phiếu ở trạng thái 'completed' hoặc 'delivered', kho mới chính thức trừ hàng và đổi trạng thái IMEI thành 'sold'.
+   * Khi chuyển về các trạng thái chưa xong ('checking', 'repairing', 'cancelled') hoặc khi xóa phiếu, toàn bộ linh kiện được hoàn nguyên 100%.
+   */
+  const applyRepairPartsInventoryChange = (
+    oldTicket: RepairTicket | undefined,
+    newTicket: RepairTicket | undefined,
+    currentProducts: Product[],
+    currentImeis: ProductIMEI[]
+  ): { updatedProducts: Product[]; updatedImeis: ProductIMEI[] } => {
+    let updatedProducts = currentProducts.map(p => ({ ...p }));
+    let updatedImeis = currentImeis.map(i => ({ ...i }));
+
+    const wasDeducted = oldTicket && (oldTicket.status === 'completed' || oldTicket.status === 'delivered');
+    const willBeDeducted = newTicket && (newTicket.status === 'completed' || newTicket.status === 'delivered');
+
+    // 1. Nếu phiếu cũ đã từng trừ kho, hoàn trả lại toàn bộ linh kiện cũ trước
+    if (wasDeducted && oldTicket) {
+      const partsToRevert = oldTicket.usedParts || [];
+      partsToRevert.forEach(part => {
+        if (part.imei) {
+          const cleanIm = part.imei.trim().toLowerCase();
+          const imeiIdx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
+          if (imeiIdx > -1) {
+            updatedImeis[imeiIdx] = { 
+              ...updatedImeis[imeiIdx], 
+              status: 'in_stock', 
+              repairTicketId: undefined 
+            };
+          }
+        } else {
+          const prod = updatedProducts.find(p => 
+            p.id === part.productId || 
+            (p.sku && p.sku === part.productId) || 
+            p.name === part.name
+          );
+          if (prod && !prod.hasImei) {
+            prod.stock += (part.quantity || 1);
+          }
+        }
+      });
+
+      // Giải phóng bất kỳ IMEI nào đang gắn với mã phiếu cũ này
+      updatedImeis = updatedImeis.map(i => {
+        if (i.repairTicketId === oldTicket.id) {
+          return { ...i, status: 'in_stock', repairTicketId: undefined };
+        }
+        return i;
+      });
+    }
+
+    // 2. Nếu phiếu mới đạt trạng thái hoàn thành / bàn giao, tiến hành trừ kho linh kiện mới
+    if (willBeDeducted && newTicket) {
+      const partsToDeduct = newTicket.usedParts || [];
+      partsToDeduct.forEach(part => {
+        if (part.imei) {
+          const cleanIm = part.imei.trim().toLowerCase();
+          const imeiIdx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
+          if (imeiIdx > -1) {
+            updatedImeis[imeiIdx] = { 
+              ...updatedImeis[imeiIdx], 
+              status: 'sold', 
+              repairTicketId: newTicket.id 
+            };
+          }
+        } else {
+          const prod = updatedProducts.find(p => 
+            p.id === part.productId || 
+            (p.sku && p.sku === part.productId) || 
+            p.name === part.name
+          );
+          if (prod && !prod.hasImei) {
+            prod.stock = Math.max(0, prod.stock - (part.quantity || 1));
+          }
+        }
+      });
+    }
+
+    // 3. Đồng bộ hóa tồn kho tổng các sản phẩm có IMEI
+    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
+
+    return { updatedProducts, updatedImeis };
+  };
+
+  /**
+   * Xóa phiếu sửa chữa & Hoàn nguyên 100% tự động:
+   * - Hoàn trả tồn kho linh kiện và khôi phục IMEI đã sử dụng
+   * - Hủy công nợ liên quan tới phiếu sửa chữa
+   * - Thu hồi / hủy thẻ bảo hành sửa chữa
+   */
+  const handleDeleteRepairTicket = (repairId: string) => {
+    try {
+      const targetTicket = repairs.find(r => r.id === repairId);
+      if (!targetTicket) return;
+
+      // 1. Hoàn nguyên linh kiện và IMEI nếu phiếu đã từng hoàn thành/bàn giao
+      if (targetTicket.status === 'completed' || targetTicket.status === 'delivered') {
+        const { updatedProducts, updatedImeis } = applyRepairPartsInventoryChange(
+          targetTicket,
+          undefined, // newTicket = undefined nghĩa là hoàn nguyên toàn bộ về kho
+          products,
+          imeis
+        );
+        saveProducts(updatedProducts, updatedImeis);
+        saveImeis(updatedImeis);
+      }
+
+      // 2. Xóa / hoàn nguyên công nợ liên quan
+      const cleanTicketNum = targetTicket.ticketNumber.replace(/^REP-/, '');
+      const invId = `inv_repair_${targetTicket.id}`;
+      const invNum = `HD-REP-${cleanTicketNum}`;
+
+      const nextDebts = debts.filter(d => !(
+        (d.invoiceId && d.invoiceId === invId) ||
+        (d.invoiceNumber && d.invoiceNumber === invNum) ||
+        (d.note && (d.note.includes(targetTicket.ticketNumber) || d.note.includes(cleanTicketNum)))
+      ));
+      saveDebts(nextDebts);
+
+      // 3. Xóa các thẻ bảo hành dịch vụ liên quan
+      const nextWarranties = warranties.filter(w => !(
+        w.linkedRepairId === targetTicket.id ||
+        w.id === `warr_repaired_${targetTicket.id}` ||
+        w.serialNumber === `REP-${targetTicket.ticketNumber}` ||
+        (targetTicket.deviceSerial && w.serialNumber === targetTicket.deviceSerial && w.linkedRepairId === targetTicket.id) ||
+        (w.notes && (w.notes.includes(targetTicket.ticketNumber) || w.notes.includes(cleanTicketNum)))
+      ));
+      saveWarranties(nextWarranties);
+
+      // 4. Xóa phiếu khỏi danh sách
+      const nextRepairs = repairs.filter(r => r.id !== repairId);
+      saveRepairs(nextRepairs);
+
+      logActivity(
+        'repair',
+        'Xóa phiếu sửa chữa & Hoàn nguyên',
+        `Đã xóa phiếu sửa chữa #${targetTicket.ticketNumber} (${targetTicket.customerName}) - Toàn bộ tồn kho linh kiện, IMEI, công nợ và bảo hành đã được hoàn nguyên an toàn.`,
+        targetTicket.actualCost || targetTicket.estimatedCost,
+        'danger'
+      );
+    } catch (err) {
+      console.error('Lỗi khi xóa phiếu sửa chữa:', err);
+      alert('Đã xảy ra lỗi khi hoàn nguyên phiếu sửa chữa. Vui lòng kiểm tra lại!');
+    }
   };
 
   const handleDeleteWarranty = (id: string) => {
@@ -1590,117 +1817,134 @@ export default function App() {
   };
 
   const handleUpdateRepairTicket = (updatedTicket: RepairTicket) => {
-    const updated = repairs.map(rep => rep.id === updatedTicket.id ? updatedTicket : rep);
-    saveRepairs(updated);
+    try {
+      const oldTicket = repairs.find(rep => rep.id === updatedTicket.id);
 
-    // Sync linked debt if exists
-    const cleanTicketNum = updatedTicket.ticketNumber.replace(/^REP-/, '');
-    const invId = `inv_repair_${updatedTicket.id}`;
-    const invNum = `HD-REP-${cleanTicketNum}`;
+      // Đồng bộ tồn kho linh kiện sửa chữa và IMEI theo trạng thái hoàn thành / bàn giao
+      const { updatedProducts, updatedImeis } = applyRepairPartsInventoryChange(
+        oldTicket,
+        updatedTicket,
+        products,
+        imeis
+      );
+      saveProducts(updatedProducts, updatedImeis);
+      saveImeis(updatedImeis);
 
-    const existingDebtIdx = debts.findIndex(d => 
-      (d.invoiceId && d.invoiceId === invId) ||
-      (d.invoiceNumber && d.invoiceNumber === invNum) ||
-      (d.note && (d.note.includes(updatedTicket.ticketNumber) || d.note.includes(cleanTicketNum)))
-    );
+      const updated = repairs.map(rep => rep.id === updatedTicket.id ? updatedTicket : rep);
+      saveRepairs(updated);
 
-    if (updatedTicket.debtAmount && updatedTicket.debtAmount > 0) {
-      if (existingDebtIdx > -1) {
-        const nextDebts = [...debts];
-        const existing = nextDebts[existingDebtIdx];
-        const totalPaid = (existing.payments || []).reduce((sum, p) => sum + p.amount, 0);
-        const newRemaining = Math.max(0, updatedTicket.debtAmount - totalPaid);
+      // Sync linked debt if exists
+      const cleanTicketNum = updatedTicket.ticketNumber.replace(/^REP-/, '');
+      const invId = `inv_repair_${updatedTicket.id}`;
+      const invNum = `HD-REP-${cleanTicketNum}`;
 
-        nextDebts[existingDebtIdx] = {
-          ...existing,
-          invoiceId: invId,
-          invoiceNumber: invNum,
-          customerId: updatedTicket.customerId,
-          customerName: updatedTicket.customerName,
-          customerPhone: updatedTicket.customerPhone,
-          amount: updatedTicket.debtAmount,
-          remainingAmount: newRemaining,
-          dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          status: newRemaining === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending'),
-          note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`
-        };
-        saveDebts(nextDebts);
-      } else {
-        const newDebt: Debt = {
-          id: `debt_${Date.now()}`,
-          invoiceId: invId,
-          invoiceNumber: invNum,
-          customerId: updatedTicket.customerId,
-          customerName: updatedTicket.customerName,
-          customerPhone: updatedTicket.customerPhone,
-          amount: updatedTicket.debtAmount,
-          remainingAmount: updatedTicket.debtAmount,
-          dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          status: 'pending',
-          createdAt: updatedTicket.deliveredAt ? new Date(updatedTicket.deliveredAt).toISOString() : new Date().toISOString(),
-          note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`,
-          payments: []
-        };
-        saveDebts([...debts, newDebt]);
+      const existingDebtIdx = debts.findIndex(d => 
+        (d.invoiceId && d.invoiceId === invId) ||
+        (d.invoiceNumber && d.invoiceNumber === invNum) ||
+        (d.note && (d.note.includes(updatedTicket.ticketNumber) || d.note.includes(cleanTicketNum)))
+      );
+
+      if (updatedTicket.debtAmount && updatedTicket.debtAmount > 0) {
+        if (existingDebtIdx > -1) {
+          const nextDebts = [...debts];
+          const existing = nextDebts[existingDebtIdx];
+          const totalPaid = (existing.payments || []).reduce((sum, p) => sum + p.amount, 0);
+          const newRemaining = Math.max(0, updatedTicket.debtAmount - totalPaid);
+
+          nextDebts[existingDebtIdx] = {
+            ...existing,
+            invoiceId: invId,
+            invoiceNumber: invNum,
+            customerId: updatedTicket.customerId,
+            customerName: updatedTicket.customerName,
+            customerPhone: updatedTicket.customerPhone,
+            amount: updatedTicket.debtAmount,
+            remainingAmount: newRemaining,
+            dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            status: newRemaining === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending'),
+            note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`
+          };
+          saveDebts(nextDebts);
+        } else {
+          const newDebt: Debt = {
+            id: `debt_${Date.now()}`,
+            invoiceId: invId,
+            invoiceNumber: invNum,
+            customerId: updatedTicket.customerId,
+            customerName: updatedTicket.customerName,
+            customerPhone: updatedTicket.customerPhone,
+            amount: updatedTicket.debtAmount,
+            remainingAmount: updatedTicket.debtAmount,
+            dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            status: 'pending',
+            createdAt: updatedTicket.deliveredAt ? new Date(updatedTicket.deliveredAt).toISOString() : new Date().toISOString(),
+            note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`,
+            payments: []
+          };
+          saveDebts([...debts, newDebt]);
+        }
+      } else if (existingDebtIdx > -1) {
+        const existing = debts[existingDebtIdx];
+        if (!existing.payments || existing.payments.length === 0) {
+          const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
+          saveDebts(nextDebts);
+        }
       }
-    } else if (existingDebtIdx > -1) {
-      const existing = debts[existingDebtIdx];
-      if (!existing.payments || existing.payments.length === 0) {
-        const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
-        saveDebts(nextDebts);
+
+      if (updatedTicket.warrantyUntil) {
+        const startDateStr = updatedTicket.deliveredAt || updatedTicket.createdAt.slice(0, 10);
+        const endDateStr = updatedTicket.warrantyUntil;
+        const startDate = new Date(startDateStr);
+        const endDate = new Date(endDateStr);
+        const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+        let computedMonths = 3;
+        if (diffDays <= 4) computedMonths = 0.1;
+        else if (diffDays <= 8) computedMonths = 0.2;
+        else if (diffDays <= 35) computedMonths = 1;
+        else if (diffDays <= 65) computedMonths = 2;
+        else if (diffDays <= 100) computedMonths = 3;
+        else if (diffDays <= 200) computedMonths = 6;
+        else if (diffDays <= 390) computedMonths = 12;
+        else if (diffDays <= 750) computedMonths = 24;
+        else if (diffDays <= 1120) computedMonths = 36;
+        else computedMonths = Math.max(1, Math.round(diffDays / 30));
+
+        const existingIdx = warranties.findIndex(w => w.linkedRepairId === updatedTicket.id || w.serialNumber === (updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`));
+        if (existingIdx > -1) {
+          const nextWarrs = [...warranties];
+          nextWarrs[existingIdx] = {
+            ...nextWarrs[existingIdx],
+            customerName: updatedTicket.customerName,
+            customerPhone: updatedTicket.customerPhone,
+            purchaseDate: startDateStr,
+            warrantyMonths: computedMonths,
+            expiryDate: endDateStr,
+            notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`
+          };
+          saveWarranties(nextWarrs);
+        } else if (updatedTicket.status === 'delivered' || updatedTicket.status === 'completed') {
+          const newWarr: WarrantyCard = {
+            id: `warr_repaired_${updatedTicket.id}`,
+            serialNumber: updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`,
+            productName: `Dịch vụ sửa máy: ${updatedTicket.deviceName}`,
+            customerName: updatedTicket.customerName,
+            customerPhone: updatedTicket.customerPhone,
+            purchaseDate: startDateStr,
+            warrantyMonths: computedMonths,
+            expiryDate: endDateStr,
+            status: 'active',
+            notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`,
+            linkedRepairId: updatedTicket.id
+          };
+          saveWarranties([newWarr, ...warranties]);
+        }
       }
+
+      logActivity('repair', 'Chỉnh sửa phiếu / hóa đơn sửa chữa', `Mã phiếu: #${updatedTicket.ticketNumber} - Khách: ${updatedTicket.customerName} - Thiết bị: ${updatedTicket.deviceName}`, updatedTicket.actualCost || updatedTicket.estimatedCost, 'info');
+    } catch (err) {
+      console.error('Lỗi khi cập nhật phiếu sửa chữa:', err);
+      alert('Đã xảy ra sự cố khi cập nhật phiếu sửa chữa.');
     }
-
-    if (updatedTicket.warrantyUntil) {
-      const startDateStr = updatedTicket.deliveredAt || updatedTicket.createdAt.slice(0, 10);
-      const endDateStr = updatedTicket.warrantyUntil;
-      const startDate = new Date(startDateStr);
-      const endDate = new Date(endDateStr);
-      const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
-      let computedMonths = 3;
-      if (diffDays <= 4) computedMonths = 0.1;
-      else if (diffDays <= 8) computedMonths = 0.2;
-      else if (diffDays <= 35) computedMonths = 1;
-      else if (diffDays <= 65) computedMonths = 2;
-      else if (diffDays <= 100) computedMonths = 3;
-      else if (diffDays <= 200) computedMonths = 6;
-      else if (diffDays <= 390) computedMonths = 12;
-      else if (diffDays <= 750) computedMonths = 24;
-      else if (diffDays <= 1120) computedMonths = 36;
-      else computedMonths = Math.max(1, Math.round(diffDays / 30));
-
-      const existingIdx = warranties.findIndex(w => w.linkedRepairId === updatedTicket.id || w.serialNumber === (updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`));
-      if (existingIdx > -1) {
-        const nextWarrs = [...warranties];
-        nextWarrs[existingIdx] = {
-          ...nextWarrs[existingIdx],
-          customerName: updatedTicket.customerName,
-          customerPhone: updatedTicket.customerPhone,
-          purchaseDate: startDateStr,
-          warrantyMonths: computedMonths,
-          expiryDate: endDateStr,
-          notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`
-        };
-        saveWarranties(nextWarrs);
-      } else if (updatedTicket.status === 'delivered' || updatedTicket.status === 'completed') {
-        const newWarr: WarrantyCard = {
-          id: `warr_repaired_${updatedTicket.id}`,
-          serialNumber: updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`,
-          productName: `Dịch vụ sửa máy: ${updatedTicket.deviceName}`,
-          customerName: updatedTicket.customerName,
-          customerPhone: updatedTicket.customerPhone,
-          purchaseDate: startDateStr,
-          warrantyMonths: computedMonths,
-          expiryDate: endDateStr,
-          status: 'active',
-          notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`,
-          linkedRepairId: updatedTicket.id
-        };
-        saveWarranties([newWarr, ...warranties]);
-      }
-    }
-
-    logActivity('repair', 'Chỉnh sửa phiếu / hóa đơn sửa chữa', `Mã phiếu: #${updatedTicket.ticketNumber} - Khách: ${updatedTicket.customerName} - Thiết bị: ${updatedTicket.deviceName}`, updatedTicket.actualCost || updatedTicket.estimatedCost, 'info');
   };
 
   // Advanced repair transitions
@@ -1718,15 +1962,16 @@ export default function App() {
       debtDueDate?: string;
     }
   ) => {
-    let debtToSave: Debt | null = null;
-    let targetTicket: RepairTicket | undefined;
+    try {
+      let debtToSave: Debt | null = null;
+      let targetTicket: RepairTicket | undefined;
 
-    const updated = repairs.map(rep => {
-      if (rep.id !== id) return rep;
-      targetTicket = rep;
+      const targetIndex = repairs.findIndex(r => r.id === id);
+      if (targetIndex === -1) return;
+      targetTicket = repairs[targetIndex];
 
-      const payload = {
-        ...rep,
+      const payload: RepairTicket = {
+        ...targetTicket,
         status,
         updatedAt: new Date().toISOString()
       };
@@ -1746,24 +1991,48 @@ export default function App() {
         payload.deliveredAt = new Date().toISOString().slice(0, 10);
       }
 
+      // Áp dụng đồng bộ tồn kho linh kiện sửa chữa và trạng thái IMEI
+      const { updatedProducts, updatedImeis } = applyRepairPartsInventoryChange(
+        targetTicket,
+        payload,
+        products,
+        imeis
+      );
+      saveProducts(updatedProducts, updatedImeis);
+      saveImeis(updatedImeis);
+
+      const nextRepairs = [...repairs];
+      nextRepairs[targetIndex] = payload;
+      saveRepairs(nextRepairs);
+
       if (status === 'delivered' && finalDetails?.debtAmount && finalDetails.debtAmount > 0) {
-        const cleanTicketNum = rep.ticketNumber.replace(/^REP-/, '');
-        const invId = `inv_repair_${rep.id}`;
+        const cleanTicketNum = targetTicket.ticketNumber.replace(/^REP-/, '');
+        const invId = `inv_repair_${targetTicket.id}`;
         const invNum = `HD-REP-${cleanTicketNum}`;
         debtToSave = {
           id: `debt_${Date.now()}`,
           invoiceId: invId,
           invoiceNumber: invNum,
-          customerId: rep.customerId,
-          customerName: rep.customerName,
-          customerPhone: rep.customerPhone,
-          amount: finalDetails.actualCost || rep.estimatedCost,
+          customerId: targetTicket.customerId,
+          customerName: targetTicket.customerName,
+          customerPhone: targetTicket.customerPhone,
+          amount: finalDetails.actualCost || targetTicket.estimatedCost,
           remainingAmount: finalDetails.debtAmount,
           dueDate: finalDetails.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          status: finalDetails.debtAmount === (finalDetails.actualCost || rep.estimatedCost) ? 'pending' : 'partial',
+          status: finalDetails.debtAmount === (finalDetails.actualCost || targetTicket.estimatedCost) ? 'pending' : 'partial',
           createdAt: finalDetails.deliveredAt ? new Date(finalDetails.deliveredAt).toISOString() : new Date().toISOString(),
-          note: `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`
+          note: `Công nợ sửa chữa thiết bị: ${targetTicket.deviceName} (#${targetTicket.ticketNumber})`
         };
+      } else if (status === 'checking' || status === 'repairing') {
+        const cleanTicketNum = targetTicket.ticketNumber.replace(/^REP-/, '');
+        const invId = `inv_repair_${targetTicket.id}`;
+        const invNum = `HD-REP-${cleanTicketNum}`;
+        const nextDebts = debts.filter(d => !(
+          (d.invoiceId && d.invoiceId === invId) ||
+          (d.invoiceNumber && d.invoiceNumber === invNum) ||
+          (d.note && (d.note.includes(targetTicket!.ticketNumber) || d.note.includes(cleanTicketNum)))
+        ));
+        saveDebts(nextDebts);
       }
 
       // If transition to 'delivered' occurs, also register or update a service repair warranty card
@@ -1771,7 +2040,7 @@ export default function App() {
         let maxPartWarranty = 0;
         if (payload.usedParts && payload.usedParts.length > 0) {
           payload.usedParts.forEach(pt => {
-            const prod = products.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
+            const prod = updatedProducts.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
             const w = pt.warrantyMonths ?? prod?.warrantyMonths ?? 0;
             if (w > maxPartWarranty) maxPartWarranty = w;
           });
@@ -1806,27 +2075,27 @@ export default function App() {
         }
 
         const repairWarrantyCard: WarrantyCard = {
-          id: `warr_repaired_${rep.id}`,
-          serialNumber: rep.deviceSerial || `REP-${rep.ticketNumber}`,
-          productName: `Dịch vụ sửa máy: ${rep.deviceName}`,
-          customerName: rep.customerName,
-          customerPhone: rep.customerPhone,
+          id: `warr_repaired_${targetTicket.id}`,
+          serialNumber: targetTicket.deviceSerial || `REP-${targetTicket.ticketNumber}`,
+          productName: `Dịch vụ sửa máy: ${targetTicket.deviceName}`,
+          customerName: targetTicket.customerName,
+          customerPhone: targetTicket.customerPhone,
           purchaseDate: startDateStr,
           warrantyMonths: computedMonths,
           expiryDate: finalExpiryDateStr,
           status: 'active',
-          notes: `Bảo hành dịch vụ sửa chữa số ${rep.ticketNumber}. Giải pháp: ${payload.solution || 'Thay thế linh kiện'}`,
-          linkedRepairId: rep.id
+          notes: `Bảo hành dịch vụ sửa chữa số ${targetTicket.ticketNumber}. Giải pháp: ${payload.solution || 'Thay thế linh kiện'}`,
+          linkedRepairId: targetTicket.id
         };
         
         // Upsert into warranties list
         setTimeout(() => {
           setWarranties(prevWarr => {
             const existingIdx = prevWarr.findIndex(w => 
-              w.linkedRepairId === rep.id || 
-              (rep.deviceSerial && w.serialNumber === rep.deviceSerial) ||
-              w.serialNumber === `REP-${rep.ticketNumber}` ||
-              (w.notes && w.notes.includes(rep.ticketNumber))
+              w.linkedRepairId === targetTicket!.id || 
+              (targetTicket!.deviceSerial && w.serialNumber === targetTicket!.deviceSerial) ||
+              w.serialNumber === `REP-${targetTicket!.ticketNumber}` ||
+              (w.notes && w.notes.includes(targetTicket!.ticketNumber))
             );
             let nextWarrs: WarrantyCard[];
             if (existingIdx >= 0) {
@@ -1843,48 +2112,53 @@ export default function App() {
             return nextWarrs;
           });
         }, 10);
+      } else if (status === 'checking' || status === 'repairing') {
+        const nextWarrs = warranties.filter(w => !(
+          w.linkedRepairId === targetTicket!.id ||
+          w.id === `warr_repaired_${targetTicket!.id}` ||
+          w.serialNumber === `REP-${targetTicket!.ticketNumber}` ||
+          (w.notes && w.notes.includes(targetTicket!.ticketNumber))
+        ));
+        saveWarranties(nextWarrs);
       }
 
-      return payload;
-    });
+      const statusMap: Record<RepairStatus, string> = {
+        checking: 'Đang kiểm tra / báo giá',
+        repairing: 'Đang tiến hành sửa chữa',
+        completed: 'Đã sửa xong (chờ nhận)',
+        delivered: 'Đã hoàn thành & Bàn giao máy'
+      };
 
-    saveRepairs(updated);
+      logActivity('repair', 'Cập nhật trạng thái phiếu sửa chữa', `Mã phiếu: #${targetTicket?.ticketNumber || id} - Khách: ${targetTicket?.customerName || 'N/A'} -> Trạng thái: ${statusMap[status] || status}`, finalDetails?.actualCost, 'info');
 
-    const statusMap: Record<string, string> = {
-      pending: 'Đang chờ xử lý',
-      inspecting: 'Đang kiểm tra / báo giá',
-      repairing: 'Đang tiến hành sửa chữa',
-      completed: 'Đã sửa xong (chờ nhận)',
-      delivered: 'Đã hoàn thành & Bàn giao máy',
-      cancelled: 'Đã hủy phiếu'
-    };
-
-    logActivity('repair', 'Cập nhật trạng thái phiếu sửa chữa', `Mã phiếu: #${targetTicket?.ticketNumber || id} - Khách: ${targetTicket?.customerName || 'N/A'} -> Trạng thái: ${statusMap[status] || status}`, finalDetails?.actualCost, 'info');
-
-    if (debtToSave) {
-      setTimeout(() => {
-        setDebts(prevDebts => {
-          const cleanTicketNum = targetTicket?.ticketNumber?.replace(/^REP-/, '') || '';
-          const existingIdx = prevDebts.findIndex(d => 
-            (debtToSave?.invoiceId && d.invoiceId === debtToSave.invoiceId) ||
-            (debtToSave?.invoiceNumber && d.invoiceNumber === debtToSave.invoiceNumber) ||
-            (cleanTicketNum && d.note && d.note.includes(cleanTicketNum))
-          );
-          let nextDebts: Debt[];
-          if (existingIdx > -1) {
-            nextDebts = [...prevDebts];
-            nextDebts[existingIdx] = {
-              ...nextDebts[existingIdx],
-              ...debtToSave,
-              id: nextDebts[existingIdx].id
-            };
-          } else {
-            nextDebts = [debtToSave!, ...prevDebts];
-          }
-          saveDebts(nextDebts);
-          return nextDebts;
-        });
-      }, 50);
+      if (debtToSave) {
+        setTimeout(() => {
+          setDebts(prevDebts => {
+            const cleanTicketNum = targetTicket?.ticketNumber?.replace(/^REP-/, '') || '';
+            const existingIdx = prevDebts.findIndex(d => 
+              (debtToSave?.invoiceId && d.invoiceId === debtToSave.invoiceId) ||
+              (debtToSave?.invoiceNumber && d.invoiceNumber === debtToSave.invoiceNumber) ||
+              (cleanTicketNum && d.note && d.note.includes(cleanTicketNum))
+            );
+            let nextDebts: Debt[];
+            if (existingIdx > -1) {
+              nextDebts = [...prevDebts];
+              nextDebts[existingIdx] = {
+                ...nextDebts[existingIdx],
+                ...debtToSave,
+                id: nextDebts[existingIdx].id
+              };
+            } else {
+              nextDebts = [debtToSave!, ...prevDebts];
+            }
+            saveDebts(nextDebts);
+            return nextDebts;
+          });
+        }, 50);
+      }
+    } catch (err) {
+      console.error('Lỗi khi cập nhật trạng thái phiếu sửa chữa:', err);
+      alert('Đã xảy ra sự cố khi cập nhật trạng thái phiếu.');
     }
   };
 
@@ -1985,7 +2259,7 @@ export default function App() {
                     { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
                     { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
                     { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-                  ].filter(tab => !['accounts', 'printSettings', 'owner'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
+                  ].filter(tab => !['accounts', 'printSettings', 'owner', 'reports'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.id;
                     return (
@@ -2072,7 +2346,7 @@ export default function App() {
               { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
               { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
               { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-            ].filter(tab => !['accounts', 'printSettings', 'owner'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
+            ].filter(tab => !['accounts', 'printSettings', 'owner', 'reports'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
@@ -2384,6 +2658,7 @@ export default function App() {
                 onUpdateImeis={saveImeis}
                 onAddRepair={handleAddRepair}
                 onUpdateRepair={handleUpdateRepairTicket}
+                onDeleteRepair={handleDeleteRepairTicket}
                 onUpdateRepairStatus={handleUpdateRepairStatus}
                 onAddCustomer={handleAddCustomer}
                 onUpdateProductStock={handleUpdateProductStock}

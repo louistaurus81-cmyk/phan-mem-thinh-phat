@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product, Customer, SalesInvoice, InvoiceItem, PrintSettings, ProductIMEI, formatWarrantyText, formatAccountName, formatBankName } from '../types';
+import { printElementViaIframe } from '../utils/printHelper';
 import { 
   Cpu, 
   Trash2, 
@@ -1397,7 +1398,7 @@ export default function PCBuilder({
                       >
                         <div className="min-w-0 pr-4">
                           <h5 className="font-bold text-slate-800 truncate leading-snug">{p.name}</h5>
-                          <p className="text-[10px] text-slate-400 font-mono mt-1">SKU/ID: {p.sku} | Tồn: <span className="font-bold text-slate-600">{p.hasImei ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length : p.stock}</span> | BH: {p.warrantyMonths}T</p>
+                          <p className="text-[10px] text-slate-400 font-mono mt-1">SKU/ID: {p.sku} | Tồn: <span className="font-bold text-slate-600">{p.hasImei ? imeis.filter(i => i.productId === p.id && i.status === 'in_stock').length : p.stock}</span> | BH: {formatWarrantyText(p.warrantyMonths)}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="font-extrabold text-slate-900">{formatVND(p.price)}</p>
@@ -1907,14 +1908,9 @@ export default function PCBuilder({
                 <button
                   type="button"
                   onClick={() => {
-                    const printContents = document.getElementById('print-pc-quote-block')?.innerHTML;
-                    const originalContents = document.body.innerHTML;
-                    if (printContents) {
-                      document.body.innerHTML = printContents;
-                      window.print();
-                      document.body.innerHTML = originalContents;
-                      window.location.reload(); // reload safely since state needs reset
-                    }
+                    printElementViaIframe('print-pc-quote-block', {
+                      title: `Báo giá cấu hình PC`
+                    });
                   }}
                   className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black cursor-pointer shadow-md flex items-center gap-1.5"
                 >

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Supplier, Product } from '../types';
+import { Supplier, Product, formatWarrantyText } from '../types';
 import { 
   Building2, 
   Search, 
@@ -268,7 +268,7 @@ export default function SupplierManager({ suppliers, onUpdateSuppliers, products
                       <div key={p.id} className="pt-2 text-xs">
                         <div className="font-bold text-slate-800 flex justify-between items-start gap-2">
                           <span className="truncate">{p.name}</span>
-                          <span className="shrink-0 text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded text-[10px] font-mono">{p.warrantyMonths}T Bảo hành</span>
+                          <span className="shrink-0 text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded text-[10px] font-mono">{formatWarrantyText(p.warrantyMonths || 0)}</span>
                         </div>
                         <div className="flex justify-between text-slate-400 font-mono mt-0.5 text-[10px]">
                           <span>SKU: {p.sku}</span>

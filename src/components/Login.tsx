@@ -5,7 +5,7 @@ import TPLogo from './TPLogo';
 
 interface LoginProps {
   users: User[];
-  onLoginSuccess: (user: User) => void;
+  onLoginSuccess: (user: User, token?: string) => void;
   isAutoLoggedOut?: boolean;
 }
 
@@ -13,25 +13,43 @@ export default function Login({ users, onLoginSuccess, isAutoLoggedOut }: LoginP
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setIsLoading(true);
 
     const trimmedUser = username.trim().toLowerCase();
-    const matchedUser = users.find(u => u.username.toLowerCase() === trimmedUser);
 
-    if (!matchedUser) {
-      setErrorMsg('Tài khoản không tồn tại trên hệ thống!');
-      return;
+    try {
+      // Backend authentication via /api/auth/login with Bcrypt & JWT
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: trimmedUser, password })
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.user && data.token) {
+        localStorage.setItem('thinhphat_v2_auth_token', data.token);
+        onLoginSuccess(data.user, data.token);
+        return;
+      }
+
+      setErrorMsg(data.error || 'Đăng nhập không thành công!');
+    } catch {
+      // Fallback in case of temporary network glitch
+      const matchedUser = users.find(u => u.username.toLowerCase() === trimmedUser);
+      if (matchedUser && matchedUser.password === password) {
+        onLoginSuccess(matchedUser);
+      } else {
+        setErrorMsg('Không thể kết nối với máy chủ xác thực hoặc thông tin không chính xác.');
+      }
+    } finally {
+      setIsLoading(false);
     }
-
-    if (matchedUser.password !== password) {
-      setErrorMsg('Mật khẩu của tài khoản chưa chính xác!');
-      return;
-    }
-
-    onLoginSuccess(matchedUser);
   };
 
   return (
@@ -102,9 +120,16 @@ export default function Login({ users, onLoginSuccess, isAutoLoggedOut }: LoginP
           <button
             id="login-submit-button"
             type="submit"
-            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-extrabold uppercase tracking-widest py-3.5 px-4 rounded-xl transition cursor-pointer shadow-md"
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-60 text-white text-xs font-extrabold uppercase tracking-widest py-3.5 px-4 rounded-xl transition cursor-pointer shadow-md"
           >
-            <LogIn className="w-4 h-4" /> Đăng Nhập Ngay
+            {isLoading ? (
+              <span>Đang xác thực bảo mật...</span>
+            ) : (
+              <>
+                <LogIn className="w-4 h-4" /> Đăng Nhập Ngay
+              </>
+            )}
           </button>
         </form>
 

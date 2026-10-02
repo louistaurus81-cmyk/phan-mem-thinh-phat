@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { WarrantyCard, Customer, User, SalesInvoice, RepairTicket, Product, formatWarrantyText, computeExpiryDate, getPartWarrantyInfo } from '../types';
+import { printElementViaIframe } from '../utils/printHelper';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { 
   Search, 
@@ -848,6 +849,8 @@ export default function WarrantyManager({
                       <option value="12">12 Tháng bảo hành (Mặc định)</option>
                       <option value="24">24 Tháng bảo hành</option>
                       <option value="36">36 Tháng bảo hành</option>
+                      <option value="48">48 Tháng (4 năm) bảo hành</option>
+                      <option value="60">60 Tháng (5 năm) bảo hành</option>
                     </select>
                   </div>
                 </div>
@@ -1147,14 +1150,9 @@ export default function WarrantyManager({
                 <button
                   type="button"
                   onClick={() => {
-                    const printContents = document.getElementById('print-repair-invoice-block')?.innerHTML;
-                    const originalC = document.body.innerHTML;
-                    if (printContents) {
-                      document.body.innerHTML = printContents;
-                      window.print();
-                      document.body.innerHTML = originalC;
-                      window.location.reload();
-                    }
+                    printElementViaIframe('print-repair-invoice-block', {
+                      title: `Hoá đơn dịch vụ sửa chữa`
+                    });
                   }}
                   className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black cursor-pointer shadow-3xs flex items-center gap-1.5"
                 >

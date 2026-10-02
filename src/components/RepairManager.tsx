@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { RepairTicket, Customer, WarrantyCard, RepairStatus, User, Product, computeExpiryDate, ProductIMEI, PrintSettings, formatAccountName, formatBankName, formatWarrantyText, getPartWarrantyInfo } from '../types';
+import { printElementViaIframe } from '../utils/printHelper';
 import { 
   Search, 
   Wrench, 
@@ -36,6 +37,7 @@ interface RepairManagerProps {
   onUpdateImeis?: (imeis: ProductIMEI[]) => void;
   onAddRepair: (ticket: RepairTicket) => void;
   onUpdateRepair?: (ticket: RepairTicket) => void;
+  onDeleteRepair?: (id: string) => void;
   onUpdateRepairStatus: (id: string, status: RepairStatus, finalDetails?: { solution?: string; actualCost?: number; warrantyUntil?: string; note?: string; deliveredAt?: string; usedParts?: { productId: string; name: string; price: number; quantity: number }[]; debtAmount?: number; debtDueDate?: string }) => void;
   onAddCustomer: (customer: Customer) => void;
   onUpdateProductStock: (id: string, newStock: number) => void;
@@ -53,6 +55,7 @@ export default function RepairManager({
   onUpdateImeis,
   onAddRepair,
   onUpdateRepair,
+  onDeleteRepair,
   onUpdateRepairStatus,
   onAddCustomer,
   onUpdateProductStock
@@ -227,6 +230,8 @@ export default function RepairManager({
     if (diffDays <= 390) return 12;
     if (diffDays <= 750) return 24;
     if (diffDays <= 1120) return 36;
+    if (diffDays <= 1490) return 48;
+    if (diffDays <= 1860) return 60;
     return Math.max(1, Math.round(diffDays / 30));
   };
 
@@ -354,15 +359,14 @@ export default function RepairManager({
     const item = usedParts[index];
     const prod = products.find(p => p.id === item.productId);
     if (!prod) return;
-    if (prod.stock <= 0) {
-      alert(`Linh kiện ${prod.name} đã hết hàng trong kho!`);
+    if (item.quantity >= prod.stock) {
+      alert(`Linh kiện ${prod.name} chỉ còn ${prod.stock} chiếc trong kho!`);
       return;
     }
     const updated = [...usedParts];
     updated[index].quantity += 1;
     setUsedParts(updated);
     setActualCost(prev => prev + item.price);
-    onUpdateProductStock(item.productId, prod.stock - 1);
   };
 
   const handleDecreasePartQty = (index: number) => {
@@ -371,14 +375,10 @@ export default function RepairManager({
       handleRemovePart(index);
       return;
     }
-    const prod = products.find(p => p.id === item.productId);
     const updated = [...usedParts];
     updated[index].quantity -= 1;
     setUsedParts(updated);
     setActualCost(prev => Math.max(0, prev - item.price));
-    if (prod) {
-      onUpdateProductStock(item.productId, prod.stock + 1);
-    }
   };
 
   const handleSaveEditTicket = (e: React.FormEvent) => {
@@ -436,25 +436,24 @@ export default function RepairManager({
   const [partSearchQuery, setPartSearchQuery] = useState('');
 
   // Handle addition of replacement component & auto calculate cost
+  // Handle addition of replacement component (deferred inventory deduction until completed/delivered)
   const handleAddPart = (p: Product, imei?: string) => {
     const warrMonths = p.warrantyMonths !== undefined ? p.warrantyMonths : 0;
     let nextParts = [...usedParts];
     if (imei) {
-      // For products with IMEI, we always add them as separate line items to keep track of individual IMEIs
-      nextParts.push({ productId: p.id, name: `${p.name} (S/N: ${imei})`, price: p.price, quantity: 1, imei, warrantyMonths: warrMonths });
-      
-      // Update global IMEI list status to sold
-      if (onUpdateImeis) {
-        const updatedImeis = imeis.map(item => {
-          if (item.imei === imei) {
-            return { ...item, status: 'sold' as const };
-          }
-          return item;
-        });
-        onUpdateImeis(updatedImeis);
+      // For products with IMEI, prevent duplicate selection
+      if (nextParts.some(item => item.imei === imei)) {
+        alert(`IMEI ${imei} đã được chọn vào danh sách linh kiện!`);
+        return;
       }
+      nextParts.push({ productId: p.id, name: `${p.name} (S/N: ${imei})`, price: p.price, quantity: 1, imei, warrantyMonths: warrMonths });
     } else {
       const existingIndex = usedParts.findIndex(item => item.productId === p.id && !item.imei);
+      const currentQty = existingIndex > -1 ? nextParts[existingIndex].quantity : 0;
+      if (currentQty >= p.stock) {
+        alert(`Linh kiện ${p.name} chỉ còn tồn kho ${p.stock} chiếc!`);
+        return;
+      }
       if (existingIndex > -1) {
         nextParts[existingIndex].quantity += 1;
       } else {
@@ -465,34 +464,16 @@ export default function RepairManager({
 
     // Increment the actual repair bill by the product price automatically!
     setActualCost(prev => prev + p.price);
-    // Deduct stock for inventory integrity
-    onUpdateProductStock(p.id, p.stock - 1);
 
     // Auto update repair service warranty to max part warranty
     const maxW = nextParts.reduce((max, pt) => Math.max(max, pt.warrantyMonths ?? 0), 0);
     setRepairWarrantyMonths(maxW);
   };
 
-  // Handle deletion of replacement component & restore stock
+  // Handle deletion of replacement component from modal list (no immediate stock restore needed as it was not yet deducted)
   const handleRemovePart = (index: number) => {
     const itemToRemove = usedParts[index];
-    const originalProd = products.find(p => p.id === itemToRemove.productId);
-    
-    // Put stock back
-    if (originalProd) {
-      onUpdateProductStock(itemToRemove.productId, originalProd.stock + itemToRemove.quantity);
-    }
-
-    // If it was an IMEI item, restore its status to in_stock
-    if (itemToRemove.imei && onUpdateImeis) {
-      const updatedImeis = imeis.map(item => {
-        if (item.imei === itemToRemove.imei) {
-          return { ...item, status: 'in_stock' as const };
-        }
-        return item;
-      });
-      onUpdateImeis(updatedImeis);
-    }
+    if (!itemToRemove) return;
     
     // Re-verify actual cost
     setActualCost(prev => Math.max(0, prev - (itemToRemove.price * itemToRemove.quantity)));
@@ -844,6 +825,21 @@ export default function RepairManager({
                   >
                     <Printer className="w-3.5 h-3.5 text-indigo-600" /> In
                   </button>
+                  {onDeleteRepair && (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Bạn có chắc chắn muốn xóa phiếu sửa chữa #${activeTicket.ticketNumber}? Toàn bộ linh kiện đã xuất kho sẽ được hoàn nguyên 100%, IMEI phục hồi, công nợ và bảo hành liên quan sẽ được tự động hủy!`)) {
+                          onDeleteRepair(activeTicket.id);
+                          setActiveTicketId(null);
+                        }
+                      }}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-lg border border-rose-200 flex items-center gap-1 transition cursor-pointer"
+                      title="Xóa phiếu và hoàn nguyên tồn kho"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Xóa
+                    </button>
+                  )}
                   <button 
                     onClick={() => setActiveTicketId(null)}
                     className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
@@ -1191,6 +1187,8 @@ export default function RepairManager({
                                 <option value={12}>12 tháng bảo hành</option>
                                 <option value={24}>24 tháng bảo hành</option>
                                 <option value={36}>36 tháng bảo hành</option>
+                                <option value={48}>48 tháng bảo hành (4 năm)</option>
+                                <option value={60}>60 tháng bảo hành (5 năm)</option>
                               </select>
                             </div>
                           </div>
@@ -1568,7 +1566,7 @@ export default function RepairManager({
               </div>
 
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {imeis.filter(i => i.productId === selectingImeiForRepair.id && i.status === 'in_stock').map(i => (
+                {imeis.filter(i => i.productId === selectingImeiForRepair.id && i.status === 'in_stock' && !usedParts.some(pt => pt.imei === i.imei)).map(i => (
                   <button
                     key={i.id}
                     type="button"
@@ -1586,7 +1584,7 @@ export default function RepairManager({
                   </button>
                 ))}
 
-                {imeis.filter(i => i.productId === selectingImeiForRepair.id && i.status === 'in_stock').length === 0 && (
+                {imeis.filter(i => i.productId === selectingImeiForRepair.id && i.status === 'in_stock' && !usedParts.some(pt => pt.imei === i.imei)).length === 0 && (
                   <div className="text-center py-6 text-xs text-slate-400 italic">
                     Không tìm thấy IMEI/Serial trống nào của mặt hàng này còn trong kho hàng
                   </div>
@@ -2027,6 +2025,8 @@ export default function RepairManager({
                           { label: '12 Tháng', m: 12 },
                           { label: '24 Tháng', m: 24 },
                           { label: '36 Tháng', m: 36 },
+                          { label: '48 Tháng (4 Năm)', m: 48 },
+                          { label: '60 Tháng (5 Năm)', m: 60 },
                         ].map((btn) => (
                           <button
                             key={btn.label}
@@ -2117,7 +2117,7 @@ export default function RepairManager({
                 </h3>
                 <div className="flex items-center gap-2">
                   <button 
-                    onClick={() => window.print()}
+                    onClick={() => printElementViaIframe('printable-repair-invoice', { title: `Hóa đơn sửa chữa #${printingTicket.ticketNumber}` })}
                     className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer transition"
                   >
                     <Printer className="w-4 h-4" /> In Ngay
@@ -2309,7 +2309,7 @@ export default function RepairManager({
                 </button>
                 <button 
                   type="button" 
-                  onClick={() => window.print()}
+                  onClick={() => printElementViaIframe('printable-repair-invoice', { title: `Hóa đơn sửa chữa #${printingTicket.ticketNumber}` })}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition flex items-center gap-1.5"
                 >
                   <Printer className="w-4 h-4" /> In Hóa Đơn Sửa Chữa

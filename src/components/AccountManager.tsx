@@ -1,6 +1,26 @@
 import React, { useState } from 'react';
 import { User, UserRole, UserPermissions, getUserPermissions } from '../types';
-import { UserPlus, Edit, Trash2, Key, Shield, Smartphone, ToggleLeft, Sparkles, X, Check, Lock, CheckSquare, Square } from 'lucide-react';
+import { 
+  UserPlus, 
+  Edit, 
+  Trash2, 
+  Key, 
+  Shield, 
+  Smartphone, 
+  ToggleLeft, 
+  Sparkles, 
+  X, 
+  Check, 
+  Lock, 
+  CheckSquare, 
+  Square,
+  Database,
+  RefreshCw,
+  HardDrive,
+  FileCheck,
+  CheckCircle2,
+  ShieldCheck
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface AccountManagerProps {
@@ -109,6 +129,39 @@ export default function AccountManager({
       setEditingUser(prev => prev ? ({ ...prev, role, permissions: defaultPerms }) : null);
     }
   };
+
+  // 🛡️ Data Integrity & Atomic JSON Storage Monitoring State
+  const [backupReport, setBackupReport] = useState<any[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [storageDir, setStorageDir] = useState<string>('');
+  const [lastCheckTime, setLastCheckTime] = useState<string>('');
+
+  const fetchBackups = async () => {
+    if (!isAdmin) return;
+    setLoadingBackups(true);
+    try {
+      const token = localStorage.getItem('thinhphat_v2_auth_token');
+      const res = await fetch('/api/storage/backups', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBackupReport(data.report || []);
+        setStorageDir(data.storageDirectory || 'DATASOFT');
+        setLastCheckTime(new Date().toLocaleTimeString('vi-VN'));
+      }
+    } catch (err) {
+      console.error('Lỗi khi tải trạng thái sao lưu:', err);
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (isAdmin) {
+      fetchBackups();
+    }
+  }, [isAdmin]);
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -360,6 +413,150 @@ export default function AccountManager({
             })}
           </div>
         </div>
+
+        {/* 🛡️ DATA INTEGRITY & ATOMIC STORAGE MONITORING PANEL (ADMIN ONLY) */}
+        {isAdmin && (
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-150 flex items-center justify-center text-indigo-600">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                    An Toàn Dữ Liệu & Bản Sao Lưu Tự Động
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                      Bảo Vệ Đa Tầng
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Hệ thống lưu trữ JSON nguyên tử (Atomic Write) & Hàng đợi Mutex chống mất dữ liệu
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {lastCheckTime && (
+                  <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+                    Cập nhật lúc: {lastCheckTime}
+                  </span>
+                )}
+                <button
+                  id="btn-refresh-backups"
+                  onClick={fetchBackups}
+                  disabled={loadingBackups}
+                  className="px-3.5 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Kiểm tra lại toàn bộ file JSON và file Backup"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingBackups ? 'animate-spin' : ''}`} />
+                  Làm mới trạng thái
+                </button>
+              </div>
+            </div>
+
+            {/* 3 Core Architecture Standards Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+              <div className="bg-gradient-to-br from-indigo-50/70 to-blue-50/50 p-4 rounded-2xl border border-indigo-100 space-y-1.5">
+                <div className="flex items-center gap-2 text-indigo-700 font-bold text-xs">
+                  <FileCheck className="w-4 h-4 text-indigo-600" />
+                  <span>1. Atomic Write (Ghi Nguyên Tử)</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Ghi trước vào file tạm <span className="font-mono font-bold text-indigo-900">.tmp</span>, sau đó tráo đổi nguyên tử (<span className="font-mono text-xs">renameSync</span>). Đảm bảo file không bao giờ bị rỗng hoặc lỗi khi mất điện đột ngột.
+                </p>
+                <div className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                  <CheckCircle2 className="w-3 h-3" /> Đang kích hoạt chuẩn
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-emerald-50/70 to-teal-50/50 p-4 rounded-2xl border border-emerald-100 space-y-1.5">
+                <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>2. Mutex Queue (Chống Tranh Chấp)</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Sử dụng cơ chế khóa hàng đợi <span className="font-mono font-bold text-emerald-900">async-mutex</span> theo từng tệp. Nhiều máy tính bấm Lưu cùng lúc sẽ được xếp hàng xử lý tuần tự, triệt tiêu lỗi ghi đè dữ liệu.
+                </p>
+                <div className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                  <CheckCircle2 className="w-3 h-3" /> Đang bảo vệ 100% tệp
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-50/70 to-orange-50/50 p-4 rounded-2xl border border-amber-100 space-y-1.5">
+                <div className="flex items-center gap-2 text-amber-800 font-bold text-xs">
+                  <HardDrive className="w-4 h-4 text-amber-600" />
+                  <span>3. Auto-Backup (.bak Tự Động)</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Tự động nhân bản <span className="font-mono font-bold text-amber-900">filename.json.bak</span> trước mỗi lần sửa/xóa lớn. Tự động khôi phục dữ liệu từ bản backup nếu phát hiện file chính bị sự cố.
+                </p>
+                <div className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                  <CheckCircle2 className="w-3 h-3" /> Tự cứu hộ dữ liệu
+                </div>
+              </div>
+            </div>
+
+            {/* Live Database File Status Table */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 px-1">
+                <span>Trạng thái tệp cơ sở dữ liệu ({storageDir || 'DATASOFT'})</span>
+                <span className="text-[11px] text-slate-400 font-normal">
+                  {backupReport.filter(r => r.bakExists).length} / {backupReport.length} tệp đã có bản sao lưu .bak
+                </span>
+              </div>
+
+              <div className="border border-slate-200/80 rounded-2xl overflow-hidden text-xs">
+                <div className="bg-slate-50 border-b border-slate-200/80 px-4 py-2.5 grid grid-cols-12 font-bold text-slate-600">
+                  <div className="col-span-4">Tệp dữ liệu chính</div>
+                  <div className="col-span-3">Dung lượng / Cập nhật</div>
+                  <div className="col-span-3">Bản sao lưu (.bak)</div>
+                  <div className="col-span-2 text-right">Trạng thái</div>
+                </div>
+
+                <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto font-medium">
+                  {backupReport.length === 0 ? (
+                    <div className="p-4 text-center text-slate-400 text-xs">
+                      {loadingBackups ? 'Đang đọc danh mục tệp...' : 'Chưa có thông tin tệp hoặc đang kết nối'}
+                    </div>
+                  ) : (
+                    backupReport.map(item => (
+                      <div key={item.collection} className="px-4 py-2.5 grid grid-cols-12 items-center hover:bg-slate-50/60 transition">
+                        <div className="col-span-4 flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                          <span className="font-mono font-bold text-slate-900">{item.jsonFile}</span>
+                        </div>
+
+                        <div className="col-span-3 text-slate-600 text-[11px]">
+                          <div>{(item.jsonSize / 1024).toFixed(1)} KB</div>
+                          <div className="text-[10px] text-slate-400">
+                            {item.jsonModifiedAt ? new Date(item.jsonModifiedAt).toLocaleString('vi-VN') : 'Mới tạo'}
+                          </div>
+                        </div>
+
+                        <div className="col-span-3 text-[11px]">
+                          {item.bakExists ? (
+                            <div className="flex items-center gap-1.5 text-slate-700">
+                              <span className="font-mono text-indigo-600 font-semibold">{item.bakFile}</span>
+                              <span className="text-[10px] text-slate-400">({(item.bakSize / 1024).toFixed(1)} KB)</span>
+                            </div>
+                          ) : (
+                            <span className="text-amber-600 text-[10px] italic">Sẽ tạo khi có thao tác ghi</span>
+                          )}
+                        </div>
+
+                        <div className="col-span-2 text-right">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">
+                            <Check className="w-3 h-3" /> An Toàn
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
 

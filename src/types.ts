@@ -3,9 +3,13 @@ export interface ProductIMEI {
   productId: string;
   imei: string;
   status: 'in_stock' | 'sold';
+  in_stock?: boolean;
   addedAt: string;
   createdAt?: string;
   invoiceId?: string; // Links to the invoice when sold
+  repairTicketId?: string; // Links to the repair ticket when replaced in service
+  importOrderId?: string;
+  supplierId?: string;
 }
 
 export type ProductImei = ProductIMEI;
@@ -17,6 +21,45 @@ export interface Supplier {
   phone?: string;
   email?: string;
   address?: string;
+  taxCode?: string; // Mã số thuế
+  currentDebt?: number; // Nợ hiện tại của cửa hàng với NCC
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ImportOrderItem {
+  productId: string;
+  productName: string;
+  sku?: string;
+  quantity: number;
+  importPrice: number; // Giá nhập / giá vốn mới
+  subtotal: number;
+  hasImei?: boolean;
+  imeis?: string[];
+  warrantyMonths?: number;
+}
+
+export interface ImportOrder {
+  id: string;
+  orderCode: string; // Mã phiếu nhập e.g. PN20260314-001
+  supplierId: string;
+  supplierName: string;
+  items: ImportOrderItem[];
+  totalAmount: number;
+  paidAmount: number;
+  debtAmount: number;
+  paymentMethod: 'Tiền mặt' | 'Chuyển khoản' | 'Ghi nợ' | 'Thanh toán một phần';
+  paymentStatus: 'paid' | 'debt' | 'partial';
+  status: 'completed' | 'cancelled';
+  note?: string;
+  createdBy?: {
+    userId: string;
+    userName: string;
+  };
+  createdAt: string;
+  updatedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
 }
 
 export interface Product {
@@ -24,7 +67,7 @@ export interface Product {
   name: string;
   sku: string;
   price: number;
-  cost: number;
+  cost?: number;
   stock: number;
   warrantyMonths: number;
   category: string;
@@ -177,17 +220,17 @@ export function getUserPermissions(user: User | null): Required<UserPermissions>
 
   return {
     canManageInventory: p.canManageInventory ?? false,
-    canEditStock: p.canEditStock ?? false,
+    canEditStock: false,
     canManageSales: p.canManageSales ?? (isSales || isTech),
     canManageRepairs: p.canManageRepairs ?? isTech,
     canManageWarranty: p.canManageWarranty ?? true,
     canManageCustomers: p.canManageCustomers ?? true,
     canViewDebt: p.canViewDebt ?? isSales,
     canManageSuppliers: p.canManageSuppliers ?? false,
-    canViewReports: p.canViewReports ?? false,
-    canManageSettings: p.canManageSettings ?? false,
-    canEditInvoices: p.canEditInvoices ?? false,
-    canDeleteInvoices: p.canDeleteInvoices ?? false,
+    canViewReports: false,
+    canManageSettings: false,
+    canEditInvoices: false,
+    canDeleteInvoices: false,
   };
 }
 
@@ -324,6 +367,8 @@ export function formatWarrantyText(months: number): string {
   if (months === 0.2) return '7 Ngày';
   if (months === 0.3 || months === 0.35 || months === 0.25) return 'Bao test';
   if (months === 0) return 'Không bảo hành';
+  if (months === 48) return '48 Tháng (4 Năm)';
+  if (months === 60) return '60 Tháng (5 Năm)';
   return `${months} Tháng`;
 }
 
