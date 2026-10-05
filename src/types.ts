@@ -2,7 +2,7 @@ export interface ProductIMEI {
   id: string; // Typically a UUID
   productId: string;
   imei: string;
-  status: 'in_stock' | 'sold';
+  status: 'in_stock' | 'sold' | 'available' | string;
   in_stock?: boolean;
   addedAt: string;
   createdAt?: string;

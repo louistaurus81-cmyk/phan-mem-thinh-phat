@@ -1,0 +1,14 @@
+[
+  {
+    "id": "prod_cpu_i5",
+    "name": "CPU Intel Core i5 13400",
+    "sku": "CPU-I5-13400",
+    "price": 5200000,
+    "cost": 4100000,
+    "stock": 10,
+    "warrantyMonths": 36,
+    "category": "catc1",
+    "hasImei": true,
+    "supplierId": "sup_1790323189305"
+  }
+]

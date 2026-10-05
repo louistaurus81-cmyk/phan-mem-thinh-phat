@@ -15,6 +15,7 @@ import {
   Debt,
   DebtPayment,
   Supplier,
+  ImportOrder,
   StaffActivityLog,
   ActivityType,
   computeExpiryDate
@@ -282,6 +283,7 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [importOrders, setImportOrders] = useState<ImportOrder[]>([]);
   const [activities, setActivities] = useState<StaffActivityLog[]>([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   
@@ -305,7 +307,7 @@ export default function App() {
       const res = await fetch('/api/db', { headers });
       const payload = await res.json();
       if (payload.success && payload.db) {
-        const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers, activities } = payload.db;
+        const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers, activities, import_orders } = payload.db;
         const loadedImeis = imeis || [];
         if (Array.isArray(imeis)) setImeis(imeis);
         if (Array.isArray(products)) {
@@ -320,6 +322,7 @@ export default function App() {
         if (Array.isArray(users)) setUsers(users);
         if (Array.isArray(debts)) setDebts(debts);
         if (Array.isArray(suppliers)) setSuppliers(suppliers);
+        if (Array.isArray(import_orders)) setImportOrders(import_orders);
         if (Array.isArray(activities)) setActivities(activities);
         if (settings && settings.length > 0) {
           setPrintSettings(settings[0]);
@@ -962,6 +965,12 @@ export default function App() {
     setSuppliers(newSuppliers);
     localStorage.setItem('thinhphat_v2_suppliers', JSON.stringify(newSuppliers));
     syncWithServer('suppliers', newSuppliers);
+  };
+
+  const saveImportOrders = (newOrders: ImportOrder[]) => {
+    setImportOrders(newOrders);
+    localStorage.setItem('thinhphat_v2_import_orders', JSON.stringify(newOrders));
+    syncWithServer('import_orders', newOrders);
   };
 
   const saveActivities = (newActivities: StaffActivityLog[]) => {
@@ -2707,6 +2716,13 @@ export default function App() {
                 onUpdateSuppliers={saveSuppliers}
                 products={products}
                 onUpdateProduct={handleUpdateProduct}
+                onUpdateProducts={saveProducts}
+                imeis={imeis}
+                onUpdateImeis={saveImeis}
+                importOrders={importOrders}
+                onUpdateImportOrders={saveImportOrders}
+                currentUser={currentUser}
+                onReloadData={() => loadCentralData(true)}
               />
             )}
 

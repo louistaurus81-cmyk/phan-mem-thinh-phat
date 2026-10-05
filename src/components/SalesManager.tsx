@@ -1289,7 +1289,7 @@ export default function SalesManager({
                   <th className="py-3 px-2">Mã SKU</th>
                   <th className="py-3 px-2">Tên Linh Kiện / Sản Phẩm</th>
                   <th className="py-3 px-2">Danh Mục</th>
-                  {currentUser?.role === 'admin' && <th className="py-3 px-2">Giá Nhập</th>}
+                  <th className="py-3 px-2 text-rose-600">Giá Nhập</th>
                   <th className="py-3 px-2">Giá Xuất</th>
                   <th className="py-3 px-2">Bảo Hành</th>
                   <th className="py-3 px-2">Tồn Kho</th>
@@ -1320,11 +1320,9 @@ export default function SalesManager({
                           {prod.category}
                         </span>
                       </td>
-                      {currentUser?.role === 'admin' && (
-                        <td className="py-3.5 font-semibold text-rose-500">
-                          {typeof prod.cost === 'number' && prod.cost > 0 ? formatVND(prod.cost) : '---'}
-                        </td>
-                      )}
+                      <td className="py-3.5 font-semibold text-rose-600 font-mono">
+                        {typeof prod.cost === 'number' && prod.cost > 0 ? formatVND(prod.cost) : '---'}
+                      </td>
                       <td className="py-3.5 font-bold text-emerald-600">{formatVND(prod.price)}</td>
                       <td className="py-3.5 text-xs text-slate-500">{formatWarrantyText(prod.warrantyMonths)}</td>
                       <td className="py-3.5">
@@ -1756,31 +1754,32 @@ export default function SalesManager({
                   </label>
                 </div>
 
-                <div className={`grid ${currentUser?.role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
-                  {currentUser?.role === 'admin' && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Vốn (Giá nhập - VNĐ)</label>
-                      <input 
-                        id="input-product-cost"
-                        type="number"
-                        required
-                        placeholder="e.g. 25000000"
-                        value={newProduct.cost ?? 0}
-                        onChange={e => setNewProduct({...newProduct, cost: Number(e.target.value)})}
-                        className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                      />
-                    </div>
-                  )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Bán Lẻ (Giá xuất - VNĐ)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Giá Vốn (Giá nhập - VNĐ) <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      id="input-product-cost"
+                      type="number"
+                      placeholder="e.g. 25000000"
+                      value={newProduct.cost ?? ''}
+                      onChange={e => setNewProduct({...newProduct, cost: Number(e.target.value)})}
+                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Giá Bán Lẻ (Giá xuất - VNĐ) <span className="text-rose-500">*</span>
+                    </label>
                     <input 
                       id="input-product-price"
                       type="number"
                       required
                       placeholder="e.g. 29000000"
-                      value={newProduct.price ?? 0}
+                      value={newProduct.price ?? ''}
                       onChange={e => setNewProduct({...newProduct, price: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
+                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 font-medium"
                     />
                   </div>
                 </div>
@@ -1960,31 +1959,32 @@ export default function SalesManager({
                   </label>
                 </div>
 
-                <div className={`grid ${currentUser?.role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
-                  {currentUser?.role === 'admin' && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Vốn (Giá nhập - VNĐ)</label>
-                      <input 
-                        id="edit-product-cost"
-                        type="number"
-                        required
-                        placeholder="e.g. 25000000"
-                        value={editingProduct.cost ?? 0}
-                        onChange={e => setEditingProduct({...editingProduct, cost: Number(e.target.value)})}
-                        className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
-                      />
-                    </div>
-                  )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Giá Bán Lẻ (Giá xuất - VNĐ)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Giá Vốn (Giá nhập - VNĐ) <span className="text-rose-500">*</span>
+                    </label>
+                    <input 
+                      id="edit-product-cost"
+                      type="number"
+                      placeholder="e.g. 25000000"
+                      value={editingProduct.cost ?? ''}
+                      onChange={e => setEditingProduct({...editingProduct, cost: Number(e.target.value)})}
+                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Giá Bán Lẻ (Giá xuất - VNĐ) <span className="text-rose-500">*</span>
+                    </label>
                     <input 
                       id="edit-product-price"
                       type="number"
                       required
                       placeholder="e.g. 29000000"
-                      value={editingProduct.price ?? 0}
+                      value={editingProduct.price ?? ''}
                       onChange={e => setEditingProduct({...editingProduct, price: Number(e.target.value)})}
-                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500"
+                      className="w-full text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-hidden focus:border-indigo-500 font-medium"
                     />
                   </div>
                 </div>

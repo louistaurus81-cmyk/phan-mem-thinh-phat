@@ -1,0 +1,41 @@
+[
+  {
+    "id": "imp_1790323189305_244i4",
+    "orderCode": "PN-TEST-001",
+    "supplierId": "sup_1790323189305",
+    "supplierName": "Công ty TNHH Phân Phối Viễn Sơn",
+    "items": [
+      {
+        "productId": "prod_cpu_i5",
+        "productName": "CPU Intel Core i5 13400",
+        "sku": "CPU-I5-13400",
+        "quantity": 5,
+        "importPrice": 4300000,
+        "subtotal": 21500000,
+        "hasImei": true,
+        "imeis": [
+          "CPU001",
+          "CPU002",
+          "CPU003",
+          "CPU004",
+          "CPU005"
+        ],
+        "warrantyMonths": 36
+      }
+    ],
+    "totalAmount": 21500000,
+    "paidAmount": 10000000,
+    "debtAmount": 11500000,
+    "remainingAmount": 11500000,
+    "paymentMethod": "Chuyển khoản",
+    "paymentStatus": "partial",
+    "status": "completed",
+    "note": "Nhập đợt 1 test",
+    "createdBy": {
+      "userId": "usr_admin",
+      "userName": "Quản trị viên"
+    },
+    "createdAt": "2026-09-25T07:59:49.305Z",
+    "updatedAt": "2026-09-25T07:59:49.305Z"
+  }
+]

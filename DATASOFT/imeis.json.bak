@@ -1,0 +1,57 @@
+[
+  {
+    "id": "imei_1790323189305_pteqam",
+    "productId": "prod_cpu_i5",
+    "imei": "CPU001",
+    "status": "available",
+    "in_stock": true,
+    "addedAt": "2026-09-25T07:59:49.305Z",
+    "createdAt": "2026-09-25T07:59:49.305Z",
+    "importOrderId": "imp_1790323189305_244i4",
+    "supplierId": "sup_1790323189305"
+  },
+  {
+    "id": "imei_1790323189305_we7t5z",
+    "productId": "prod_cpu_i5",
+    "imei": "CPU002",
+    "status": "available",
+    "in_stock": true,
+    "addedAt": "2026-09-25T07:59:49.305Z",
+    "createdAt": "2026-09-25T07:59:49.305Z",
+    "importOrderId": "imp_1790323189305_244i4",
+    "supplierId": "sup_1790323189305"
+  },
+  {
+    "id": "imei_1790323189305_erqkwg",
+    "productId": "prod_cpu_i5",
+    "imei": "CPU003",
+    "status": "available",
+    "in_stock": true,
+    "addedAt": "2026-09-25T07:59:49.305Z",
+    "createdAt": "2026-09-25T07:59:49.305Z",
+    "importOrderId": "imp_1790323189305_244i4",
+    "supplierId": "sup_1790323189305"
+  },
+  {
+    "id": "imei_1790323189305_p9fz09",
+    "productId": "prod_cpu_i5",
+    "imei": "CPU004",
+    "status": "available",
+    "in_stock": true,
+    "addedAt": "2026-09-25T07:59:49.305Z",
+    "createdAt": "2026-09-25T07:59:49.305Z",
+    "importOrderId": "imp_1790323189305_244i4",
+    "supplierId": "sup_1790323189305"
+  },
+  {
+    "id": "imei_1790323189305_zii2nh",
+    "productId": "prod_cpu_i5",
+    "imei": "CPU005",
+    "status": "available",
+    "in_stock": true,
+    "addedAt": "2026-09-25T07:59:49.305Z",
+    "createdAt": "2026-09-25T07:59:49.305Z",
+    "importOrderId": "imp_1790323189305_244i4",
+    "supplierId": "sup_1790323189305"
+  }
+]

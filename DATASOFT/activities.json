@@ -1,0 +1,20 @@
+[
+  {
+    "id": "act_1790323222009",
+    "module": "inventory",
+    "action": "Hủy phiếu nhập hàng",
+    "description": "Đã hủy phiếu nhập PN-TEST-001 (Công ty TNHH Phân Phối Viễn Sơn) - Hoàn nguyên tồn kho, xóa 5 IMEI và giảm 11,500,000đ công nợ NCC",
+    "staffName": "Quản trị viên",
+    "timestamp": "2026-09-25T08:00:22.009Z",
+    "severity": "warning"
+  },
+  {
+    "id": "act_1790323189309",
+    "module": "inventory",
+    "action": "Nhập hàng từ NCC",
+    "description": "Tạo phiếu nhập PN-TEST-001 (Công ty TNHH Phân Phối Viễn Sơn) - 1 mặt hàng, Tổng tiền: 21,500,000đ, Nợ NCC: 11,500,000đ",
+    "staffName": "Quản trị viên",
+    "timestamp": "2026-09-25T07:59:49.324Z",
+    "severity": "info"
+  }
+]

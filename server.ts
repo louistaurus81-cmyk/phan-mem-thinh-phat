@@ -74,6 +74,7 @@ function ensureDbFiles() {
     imeis: [],
     debts: [],
     suppliers: [],
+    import_orders: [],
     activities: [],
     users: [
       { 
@@ -244,16 +245,8 @@ function sanitizeUsers(users: any[]): any[] {
 }
 
 function sanitizeProductsForRole(products: any[], role?: string): any[] {
-  // If user role is admin, return full product details including cost
-  if (role === "admin") {
-    return products;
-  }
-
-  // If role is sales, technician, or guest: actively filter/strip 'cost' field
-  return products.map(p => {
-    const { cost, ...safeProduct } = p;
-    return safeProduct;
-  });
+  // Always preserve product cost so that stock management, import pricing, and inventory valuation operate properly
+  return products;
 }
 
 // -------------------------------------------------------------
@@ -334,7 +327,7 @@ async function startServer() {
       const user = (req as any).user as AuthTokenPayload | null;
       const userRole = user ? user.role : undefined;
 
-      const keys = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "activities"];
+      const keys = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "import_orders", "activities"];
       const responseBody: Record<string, any> = {};
 
       for (const k of keys) {
@@ -501,7 +494,7 @@ async function startServer() {
     try {
       const user = (req as any).user as AuthTokenPayload;
       const { type, data } = req.body;
-      const validTypes = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "activities"];
+      const validTypes = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "import_orders", "activities"];
 
       if (!validTypes.includes(type)) {
         return res.status(400).json({ success: false, error: `Invalid collection type: ${type}` });
@@ -625,10 +618,279 @@ async function startServer() {
     }
   });
 
-  // API 9: Backup Status & File Integrity Monitor (Admin Only)
+  // API 8: Tạo Phiếu Nhập Hàng & Đồng Bộ Kho (Purchase Order)
+  app.post("/api/import-orders", extractUserIfPresent, async (req, res) => {
+    try {
+      const { order } = req.body;
+      if (!order || !order.supplierId || !Array.isArray(order.items) || order.items.length === 0) {
+        return res.status(400).json({ success: false, error: "Thông tin phiếu nhập không hợp lệ hoặc thiếu danh sách sản phẩm" });
+      }
+
+      const prodsPath = path.join(DATA_DIR, "products.json");
+      const suppPath = path.join(DATA_DIR, "suppliers.json");
+      const imeisPath = path.join(DATA_DIR, "imeis.json");
+      const ordersPath = path.join(DATA_DIR, "import_orders.json");
+      const actPath = path.join(DATA_DIR, "activities.json");
+
+      const products = await readJSON<any[]>(prodsPath, []);
+      const suppliers = await readJSON<any[]>(suppPath, []);
+      const imeis = await readJSON<any[]>(imeisPath, []);
+      const importOrders = await readJSON<any[]>(ordersPath, []);
+      const activities = await readJSON<any[]>(actPath, []);
+
+      // 1. Cập nhật tồn kho và giá vốn (giá nhập) cho sản phẩm
+      const newImeis: any[] = [];
+      for (const item of order.items) {
+        const pIdx = products.findIndex(p => p.id === item.productId || p.sku === item.productId);
+        if (pIdx !== -1) {
+          products[pIdx].stock = (products[pIdx].stock || 0) + Number(item.quantity || 0);
+          // Cập nhật giá vốn cost mới nếu có giá nhập
+          if (typeof item.importPrice === "number" && item.importPrice >= 0) {
+            products[pIdx].cost = item.importPrice;
+          }
+          if (!products[pIdx].supplierId) {
+            products[pIdx].supplierId = order.supplierId;
+          }
+        }
+
+        // Bổ sung IMEI vào kho nếu sản phẩm quản lý IMEI
+        if (item.hasImei && Array.isArray(item.imeis) && item.imeis.length > 0) {
+          for (const im of item.imeis) {
+            const cleanImei = String(im).trim();
+            if (cleanImei) {
+              newImeis.push({
+                id: `imei_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                productId: item.productId,
+                imei: cleanImei,
+                status: 'in_stock',
+                in_stock: true,
+                importOrderId: order.id,
+                addedAt: new Date().toISOString()
+              });
+            }
+          }
+        }
+      }
+
+      // 2. Cập nhật công nợ nhà cung cấp
+      const supIdx = suppliers.findIndex(s => s.id === order.supplierId);
+      if (supIdx !== -1 && order.debtAmount > 0) {
+        suppliers[supIdx].currentDebt = (suppliers[supIdx].currentDebt || 0) + Number(order.debtAmount || 0);
+      }
+
+      // 3. Lưu phiếu nhập
+      importOrders.unshift(order);
+
+      // 4. Ghi nhận nhật ký hoạt động
+      const user = (req as any).user;
+      activities.unshift({
+        id: `act_${Date.now()}`,
+        module: 'supplier',
+        action: 'Tạo phiếu nhập hàng',
+        description: `Nhập hàng từ NCC: ${order.supplierName} - Mã phiếu: ${order.orderCode} - Tổng tiền: ${Number(order.totalAmount || 0).toLocaleString('vi-VN')} đ (Nợ: ${Number(order.debtAmount || 0).toLocaleString('vi-VN')} đ)`,
+        staffName: user?.fullName || order.createdBy?.userName || 'Quản trị viên',
+        timestamp: new Date().toISOString(),
+        severity: 'info'
+      });
+
+      // Atomic write an toàn
+      await writeJSONSafe(ordersPath, importOrders, { backup: true });
+      await writeJSONSafe(prodsPath, products, { backup: true });
+      if (newImeis.length > 0) {
+        await writeJSONSafe(imeisPath, [...imeis, ...newImeis], { backup: true });
+      }
+      await writeJSONSafe(suppPath, suppliers, { backup: true });
+      await writeJSONSafe(actPath, activities.slice(0, 100), { backup: false });
+
+      res.json({
+        success: true,
+        message: "Tạo phiếu nhập hàng và đồng bộ dữ liệu kho thành công!",
+        order,
+        updatedProducts: products,
+        updatedSuppliers: suppliers,
+        newImeis
+      });
+    } catch (err: any) {
+      console.error("Error creating import order:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API 9: Hủy Phiếu Nhập Hàng với Kiểm Tra Ràng Buộc IMEI
+  app.post("/api/import-orders/:id/cancel", extractUserIfPresent, async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      const { reason } = req.body;
+
+      const prodsPath = path.join(DATA_DIR, "products.json");
+      const suppPath = path.join(DATA_DIR, "suppliers.json");
+      const imeisPath = path.join(DATA_DIR, "imeis.json");
+      const ordersPath = path.join(DATA_DIR, "import_orders.json");
+      const actPath = path.join(DATA_DIR, "activities.json");
+
+      const products = await readJSON<any[]>(prodsPath, []);
+      const suppliers = await readJSON<any[]>(suppPath, []);
+      const imeis = await readJSON<any[]>(imeisPath, []);
+      const importOrders = await readJSON<any[]>(ordersPath, []);
+      const activities = await readJSON<any[]>(actPath, []);
+
+      const orderIdx = importOrders.findIndex(o => o.id === orderId);
+      if (orderIdx === -1) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy phiếu nhập hàng cần hủy" });
+      }
+
+      const order = importOrders[orderIdx];
+      if (order.status === 'cancelled') {
+        return res.status(400).json({ success: false, error: "Phiếu nhập hàng này đã bị hủy trước đó" });
+      }
+
+      // 🛡️ KIỂM TRA RÀNG BUỘC (Validation):
+      // Không cho phép hủy phiếu nhập nếu bất kỳ IMEI nào trong phiếu đó đã xuất bán cho khách hàng hoặc đưa vào sửa chữa
+      const orderImeis = imeis.filter(i => i.importOrderId === order.id);
+      const soldImeis = orderImeis.filter(i => i.status === 'sold' || !i.in_stock || i.invoiceId || i.repairTicketId);
+
+      if (soldImeis.length > 0) {
+        const soldList = soldImeis.map(i => i.imei).join(', ');
+        return res.status(400).json({
+          success: false,
+          error: `Không thể hủy phiếu nhập vì các IMEI sau đã được xuất bán cho khách hàng: ${soldList}. Vui lòng kiểm tra lại!`
+        });
+      }
+
+      for (const item of order.items) {
+        if (item.imeis && item.imeis.length > 0) {
+          for (const im of item.imeis) {
+            const matched = imeis.find(i => i.imei === im);
+            if (matched && (matched.status === 'sold' || !matched.in_stock || matched.invoiceId || matched.repairTicketId)) {
+              return res.status(400).json({
+                success: false,
+                error: `Không thể hủy phiếu nhập vì mã IMEI "${im}" đã được xuất bán cho khách hàng!`
+              });
+            }
+          }
+        }
+      }
+
+      // 1. Trừ lại số lượng tồn kho
+      for (const item of order.items) {
+        const pIdx = products.findIndex(p => p.id === item.productId || p.sku === item.productId);
+        if (pIdx !== -1) {
+          products[pIdx].stock = Math.max(0, (products[pIdx].stock || 0) - Number(item.quantity || 0));
+        }
+      }
+
+      // 2. Xóa các IMEI thuộc phiếu nhập này (chưa bán)
+      const orderImeiStrings = new Set<string>();
+      orderImeis.forEach(i => orderImeiStrings.add(i.imei));
+      order.items.forEach(it => (it.imeis || []).forEach(im => orderImeiStrings.add(im)));
+
+      const remainingImeis = imeis.filter(i => i.importOrderId !== order.id && !orderImeiStrings.has(i.imei));
+
+      // 3. Trừ lại công nợ NCC
+      const supIdx = suppliers.findIndex(s => s.id === order.supplierId);
+      if (supIdx !== -1 && order.debtAmount > 0) {
+        suppliers[supIdx].currentDebt = Math.max(0, (suppliers[supIdx].currentDebt || 0) - Number(order.debtAmount || 0));
+      }
+
+      // 4. Cập nhật trạng thái phiếu
+      order.status = 'cancelled';
+      order.cancelledAt = new Date().toISOString();
+      order.cancelReason = reason || 'Hủy phiếu nhập hàng';
+      importOrders[orderIdx] = order;
+
+      // 5. Ghi nhật ký
+      const user = (req as any).user;
+      activities.unshift({
+        id: `act_${Date.now()}`,
+        module: 'supplier',
+        action: 'Hủy phiếu nhập hàng',
+        description: `Đã hủy phiếu nhập: ${order.orderCode} (${order.supplierName}) - Đã hoàn nguyên tồn kho, xóa ${orderImeiStrings.size} IMEI và trừ nợ NCC: ${Number(order.debtAmount || 0).toLocaleString('vi-VN')} đ`,
+        staffName: user?.fullName || 'Quản trị viên',
+        timestamp: new Date().toISOString(),
+        severity: 'warning'
+      });
+
+      // Atomic write an toàn
+      await writeJSONSafe(ordersPath, importOrders, { backup: true });
+      await writeJSONSafe(prodsPath, products, { backup: true });
+      await writeJSONSafe(imeisPath, remainingImeis, { backup: true });
+      await writeJSONSafe(suppPath, suppliers, { backup: true });
+      await writeJSONSafe(actPath, activities.slice(0, 100), { backup: false });
+
+      res.json({
+        success: true,
+        message: `Đã hủy thành công phiếu nhập ${order.orderCode}! Tồn kho, IMEI và công nợ đã được hoàn nguyên an toàn.`,
+        order
+      });
+    } catch (err: any) {
+      console.error("Error cancelling import order:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API 10: Xóa Phiếu Nhập Hàng (DELETE alias to cancel)
+  app.delete("/api/import-orders/:id", extractUserIfPresent, async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      const prodsPath = path.join(DATA_DIR, "products.json");
+      const suppPath = path.join(DATA_DIR, "suppliers.json");
+      const imeisPath = path.join(DATA_DIR, "imeis.json");
+      const ordersPath = path.join(DATA_DIR, "import_orders.json");
+
+      const products = await readJSON<any[]>(prodsPath, []);
+      const suppliers = await readJSON<any[]>(suppPath, []);
+      const imeis = await readJSON<any[]>(imeisPath, []);
+      const importOrders = await readJSON<any[]>(ordersPath, []);
+
+      const orderIdx = importOrders.findIndex(o => o.id === orderId);
+      if (orderIdx === -1) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy phiếu nhập hàng cần xóa" });
+      }
+
+      const order = importOrders[orderIdx];
+      if (order.status !== 'cancelled') {
+        const orderImeis = imeis.filter(i => i.importOrderId === order.id);
+        const soldImeis = orderImeis.filter(i => i.status === 'sold' || !i.in_stock || i.invoiceId || i.repairTicketId);
+        if (soldImeis.length > 0) {
+          return res.status(400).json({
+            success: false,
+            error: "Không thể xóa phiếu nhập vì các IMEI trong phiếu này đã được xuất bán!"
+          });
+        }
+
+        for (const item of order.items) {
+          const pIdx = products.findIndex(p => p.id === item.productId || p.sku === item.productId);
+          if (pIdx !== -1) {
+            products[pIdx].stock = Math.max(0, (products[pIdx].stock || 0) - Number(item.quantity || 0));
+          }
+        }
+        const orderImeiStrings = new Set<string>();
+        orderImeis.forEach(i => orderImeiStrings.add(i.imei));
+        order.items.forEach(it => (it.imeis || []).forEach(im => orderImeiStrings.add(im)));
+        const remainingImeis = imeis.filter(i => i.importOrderId !== order.id && !orderImeiStrings.has(i.imei));
+        await writeJSONSafe(imeisPath, remainingImeis, { backup: true });
+
+        const supIdx = suppliers.findIndex(s => s.id === order.supplierId);
+        if (supIdx !== -1 && order.debtAmount > 0) {
+          suppliers[supIdx].currentDebt = Math.max(0, (suppliers[supIdx].currentDebt || 0) - Number(order.debtAmount || 0));
+          await writeJSONSafe(suppPath, suppliers, { backup: true });
+        }
+        await writeJSONSafe(prodsPath, products, { backup: true });
+      }
+
+      const updatedOrders = importOrders.filter(o => o.id !== orderId);
+      await writeJSONSafe(ordersPath, updatedOrders, { backup: true });
+
+      res.json({ success: true, message: `Đã xóa phiếu nhập hàng ${order.orderCode}` });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API 11: Backup Status & File Integrity Monitor (Admin Only)
   app.get("/api/storage/backups", authenticateToken, requireAdmin, async (req, res) => {
     try {
-      const collections = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "activities"];
+      const collections = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "import_orders", "activities"];
       const backupReport = collections.map(name => {
         const jsonPath = path.join(DATA_DIR, `${name}.json`);
         const bakPath = path.join(DATA_DIR, `${name}.json.bak`);
