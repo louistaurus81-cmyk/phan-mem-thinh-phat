@@ -1,24 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Product, 
   SalesInvoice, 
-  InvoiceItem,
   RepairTicket, 
   WarrantyCard, 
-  Customer,
-  RepairStatus,
-  Category,
-  User,
-  UserRole,
-  PrintSettings,
-  ProductIMEI,
-  Debt,
-  DebtPayment,
-  Supplier,
-  ImportOrder,
-  StaffActivityLog,
-  ActivityType,
-  computeExpiryDate
+  Customer, 
+  Category, 
+  User, 
+  PrintSettings, 
+  ProductIMEI, 
+  Debt, 
+  Supplier, 
+  ImportOrder, 
+  StaffActivityLog, 
+  computeExpiryDate 
 } from './types';
 import { 
   INITIAL_PRODUCTS, 
@@ -28,12 +23,13 @@ import {
   INITIAL_WARRANTIES 
 } from './mockData';
 import { 
-  isRepairInvoice, 
   cleanDocumentNumber, 
   isExactDebtInvoiceMatch, 
   isExactDebtRepairMatch, 
   reconcileDebtBalance 
 } from './utils/finance';
+
+// Original Components
 import Dashboard from './components/Dashboard';
 import SalesManager from './components/SalesManager';
 import RepairManager from './components/RepairManager';
@@ -48,24 +44,24 @@ import PrintSettingsManager from './components/PrintSettingsManager';
 import OwnerDashboard from './components/OwnerDashboard';
 import ReportManager from './components/ReportManager';
 import TPLogo from './components/TPLogo';
+
 import { 
   LayoutDashboard, 
   ShoppingBag, 
   Wrench, 
   ShieldCheck, 
   Users, 
-  UserCog,
-  LogOut,
-  Menu,
-  X,
-  Cpu,
-  Printer,
-  ReceiptText,
-  Factory,
-  Crown,
-  Bell,
-  CheckCheck,
-  BarChart3
+  UserCog, 
+  LogOut, 
+  Menu, 
+  X, 
+  Cpu, 
+  Printer, 
+  ReceiptText, 
+  Building2, 
+  Crown, 
+  Bell, 
+  BarChart3 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -88,185 +84,13 @@ const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   quoteTitle: "BẢNG BÁO GIÁ KIÊM PHIẾU BẢO HÀNH",
   quoteStockStatusText: "SẴN HÀNG",
   quoteVatNote: "Lưu ý : Bảng giá trên chưa bao gồm phí VAT",
-  quoteValidityNote: "Bảng báo giá có hiệu lực 3 ngày kể từ ngày báo",
-  quoteWarrantyTerms: [
-    "Sản phẩm phân phối chính hãng phải còn nguyên tem bảo hành, không bị rách, chắp vá hay cạo sửa.",
-    "Sản phẩm không có dấu hiệu bị rách tem hoặc tác động cơ học hỏng hóc vật lý.",
-    "Không bảo hành trong các trường hợp cháy nổ, rơi vỡ, vô nước, côn trùng, hoặc thiên tai.",
-    "Hỗ trợ xử lý phần mềm, cài Win miễn phí trong vòng 1 năm đầu mua máy.",
-    "Hàng bán ra được đổi mới trong 7 ngày đầu nếu có lỗi phần cứng từ nhà sản xuất."
-  ],
-  showQuoteWarrantyTerms: true,
-  showQuoteBankInfo: true,
-  showQuoteQrCode: false,
-  showQuoteSignatures: true,
-  showQuoteStockColumn: true,
-  showQuoteWarrantyColumn: true,
-  quoteColSttLabel: "STT",
-  quoteColProductLabel: "TÊN LINH KIỆN - SẢN PHẨM",
-  quoteColQtyLabel: "SL",
-  quoteColUnitPriceLabel: "ĐƠN GIÁ",
-  quoteColAmountLabel: "THÀNH TIỀN",
-  quoteColWarrantyLabel: "BẢO HÀNH",
-  quoteColStockLabel: "TÌNH TRẠNG HÀNG",
-  quoteTotalLabel: "TỔNG CỘNG CẤU HÌNH BAO GỒM VAT:",
-  quoteWarrantyTermsHeader: "MỘT SỐ QUY ĐỊNH BẢO HÀNH:",
-  quoteBankHeader: "Thông tin chuyển khoản:",
-  quoteSignatureCustomerLabel: "Khách hàng",
-  quoteSignatureStoreLabel: "CỬA HÀNG"
-};
-
-// Pure helper functions placed at top-level module scope to avoid TDZ / initialization ordering errors
-const syncProductsStockWithImeis = (prods: Product[], ims: ProductIMEI[]): Product[] => {
-  return prods.map(p => {
-    if (p.hasImei) {
-      const count = ims.filter(i => i.productId === p.id && i.status === 'in_stock').length;
-      if (p.stock !== count) {
-        return { ...p, stock: count };
-      }
-    }
-    return p;
-  });
-};
-
-const isInvoiceMatchDebt = (i: SalesInvoice, targetDebt: Debt) => {
-  return isExactDebtInvoiceMatch(targetDebt, i);
-};
-
-const isRepairMatchDebt = (r: RepairTicket, targetDebt: Debt) => {
-  return isExactDebtRepairMatch(targetDebt, r);
-};
-
-const deduplicateAndSyncDebts = (
-  allDebts: Debt[],
-  allInvoices: SalesInvoice[],
-  allRepairs: RepairTicket[]
-): {
-  cleanedDebts: Debt[];
-  cleanedInvoices: SalesInvoice[];
-  cleanedRepairs: RepairTicket[];
-  hasChanged: boolean;
-} => {
-  let hasChanged = false;
-  let nextInvoices = [...allInvoices];
-  let nextRepairs = [...allRepairs];
-
-  // 1. Reconcile every debt mathematically (payments sum determine remaining balance)
-  const verifiedDebts: Debt[] = allDebts.map(debt => {
-    const reconciled = reconcileDebtBalance(debt);
-    if (reconciled.remainingAmount !== debt.remainingAmount || reconciled.status !== debt.status) {
-      hasChanged = true;
-    }
-    return reconciled;
-  });
-
-  // 2. Strict grouping: Only merge if exact same ID or exact same invoiceId/documentNumber
-  const debtGroups: Debt[][] = [];
-
-  verifiedDebts.forEach(debt => {
-    const cleanDebtDoc = cleanDocumentNumber(debt.invoiceNumber);
-
-    const matchingGroup = debtGroups.find(group => {
-      return group.some(existing => {
-        if (existing.id === debt.id) return true;
-
-        // Both have exact identical non-empty invoiceId
-        if (debt.invoiceId && existing.invoiceId && debt.invoiceId === existing.invoiceId) {
-          return true;
-        }
-
-        // Both have exact identical document number (retaining prefix HD- vs REP-)
-        const existingCleanDoc = cleanDocumentNumber(existing.invoiceNumber);
-        if (cleanDebtDoc && existingCleanDoc && cleanDebtDoc === existingCleanDoc) {
-          return true;
-        }
-
-        return false;
-      });
-    });
-
-    if (matchingGroup) {
-      matchingGroup.push(debt);
-    } else {
-      debtGroups.push([debt]);
-    }
-  });
-
-  // 3. Consolidate genuine duplicate debts without losing payment records
-  const consolidatedDebts: Debt[] = debtGroups.map(group => {
-    if (group.length === 1) return group[0];
-
-    hasChanged = true;
-
-    // Prefer record with payments or newest created
-    group.sort((a, b) => {
-      const aPayments = (a.payments || []).length;
-      const bPayments = (b.payments || []).length;
-      if (aPayments !== bPayments) return bPayments - aPayments;
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-    });
-
-    const primary = group[0];
-
-    // Merge unique payments
-    const allPayments: DebtPayment[] = [];
-    group.forEach(g => {
-      (g.payments || []).forEach(p => {
-        if (!allPayments.some(ap => ap.id === p.id || (ap.paidAt === p.paidAt && ap.amount === p.amount))) {
-          allPayments.push(p);
-        }
-      });
-    });
-
-    const maxPrincipal = Math.max(...group.map(g => g.amount || 0), primary.amount);
-
-    return reconcileDebtBalance({
-      ...primary,
-      amount: maxPrincipal,
-      payments: allPayments
-    });
-  });
-
-  // 4. Update linked invoice and repair ticket debtAmounts based on verified debt status
-  consolidatedDebts.forEach((debt) => {
-    // Sync to sales invoice
-    const invIdx = nextInvoices.findIndex(i => isExactDebtInvoiceMatch(debt, i));
-    if (invIdx > -1) {
-      const inv = nextInvoices[invIdx];
-      if (inv.debtAmount !== debt.remainingAmount) {
-        nextInvoices[invIdx] = {
-          ...inv,
-          debtAmount: debt.remainingAmount
-        };
-        hasChanged = true;
-      }
-    }
-
-    // Sync to repair ticket
-    const repIdx = nextRepairs.findIndex(r => isExactDebtRepairMatch(debt, r));
-    if (repIdx > -1) {
-      const rep = nextRepairs[repIdx];
-      if (rep.debtAmount !== debt.remainingAmount) {
-        nextRepairs[repIdx] = {
-          ...rep,
-          debtAmount: debt.remainingAmount
-        };
-        hasChanged = true;
-      }
-    }
-  });
-
-  return {
-    cleanedDebts: consolidatedDebts,
-    cleanedInvoices: nextInvoices,
-    cleanedRepairs: nextRepairs,
-    hasChanged
-  };
+  quoteValidityNote: "Bảng báo giá có hiệu lực 3 ngày kể từ ngày báo"
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>(() => localStorage.getItem('thinhphat_v2_active_tab') || 'dashboard');
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>(
+    () => localStorage.getItem('thinhphat_v2_active_tab') || 'sales'
+  );
 
   useEffect(() => {
     localStorage.setItem('thinhphat_v2_active_tab', activeTab);
@@ -286,34 +110,41 @@ export default function App() {
   const [importOrders, setImportOrders] = useState<ImportOrder[]>([]);
   const [activities, setActivities] = useState<StaffActivityLog[]>([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
-  
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isAutoLoggedOut, setIsAutoLoggedOut] = useState(false);
 
   const [dbLoading, setDbLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Load database state from fullstack Express API over LAN with RBAC token support
-  const loadCentralData = async (silent = false, overrideToken?: string) => {
+  const syncProductsWithImeis = (prods: Product[], ims: ProductIMEI[]): Product[] => {
+    return prods.map(p => {
+      if (p.hasImei) {
+        const count = ims.filter(i => i.productId === p.id && i.status === 'in_stock').length;
+        return p.stock !== count ? { ...p, stock: count } : p;
+      }
+      return p;
+    });
+  };
+
+  // Load database state over LAN
+  const loadCentralData = useCallback(async (silent = false, overrideToken?: string) => {
     if (!silent) setIsSyncing(true);
     try {
       const token = overrideToken || localStorage.getItem('thinhphat_v2_auth_token');
       const headers: Record<string, string> = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
       const res = await fetch('/api/db', { headers });
       const payload = await res.json();
+
       if (payload.success && payload.db) {
         const { products, customers, invoices, repairs, warranties, categories, users, settings, imeis, debts, suppliers, activities, import_orders } = payload.db;
         const loadedImeis = imeis || [];
-        if (Array.isArray(imeis)) setImeis(imeis);
-        if (Array.isArray(products)) {
-          const syncedProds = syncProductsStockWithImeis(products, loadedImeis);
-          setProducts(syncedProds);
-        }
+
+        if (Array.isArray(imeis)) setImeis(loadedImeis);
+        if (Array.isArray(products)) setProducts(syncProductsWithImeis(products, loadedImeis));
         if (Array.isArray(invoices)) setInvoices(invoices);
         if (Array.isArray(customers)) setCustomers(customers);
         if (Array.isArray(repairs)) setRepairs(repairs);
@@ -324,13 +155,10 @@ export default function App() {
         if (Array.isArray(suppliers)) setSuppliers(suppliers);
         if (Array.isArray(import_orders)) setImportOrders(import_orders);
         if (Array.isArray(activities)) setActivities(activities);
-        if (settings && settings.length > 0) {
-          setPrintSettings(settings[0]);
-        }
+        if (settings && settings.length > 0) setPrintSettings(settings[0]);
       }
     } catch (e) {
-      console.warn("Mạng LAN/máy chủ ngoại tuyến, tự động chuyển sang sử dụng LocalStorage cục bộ:", e);
-      // Fallback local localStorage pull
+      console.warn("Lỗi tải dữ liệu mạng LAN:", e);
       const storedProducts = localStorage.getItem('thinhphat_v2_products');
       const storedCustomers = localStorage.getItem('thinhphat_v2_customers');
       const storedInvoices = localStorage.getItem('thinhphat_v2_invoices');
@@ -355,2062 +183,443 @@ export default function App() {
       if (storedDebts) setDebts(JSON.parse(storedDebts));
       if (storedSuppliers) setSuppliers(JSON.parse(storedSuppliers));
       if (storedActivities) setActivities(JSON.parse(storedActivities));
-      if (storedSettings) {
-        try {
-          setPrintSettings(JSON.parse(storedSettings));
-        } catch (err) {}
-      }
+      if (storedSettings) setPrintSettings(JSON.parse(storedSettings));
     } finally {
       setDbLoading(false);
       setIsSyncing(false);
     }
-  };
-
-  // 1. Initial State Loading from Express Server API with LocalStorage safeguard
-  useEffect(() => {
-    const INACTIVITY_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 hours in ms
-    const storedCurrent = localStorage.getItem('thinhphat_v2_current_user');
-    const storedLastAct = localStorage.getItem('thinhphat_v2_last_activity');
-    const now = Date.now();
-
-    if (storedCurrent) {
-      let expired = false;
-      if (storedLastAct) {
-        const lastActTime = parseInt(storedLastAct, 10);
-        if (!isNaN(lastActTime) && now - lastActTime >= INACTIVITY_TIMEOUT_MS) {
-          expired = true;
-        }
-      }
-      if (expired) {
-        localStorage.removeItem('thinhphat_v2_current_user');
-        localStorage.removeItem('thinhphat_v2_last_activity');
-        setIsAutoLoggedOut(true);
-        setCurrentUser(null);
-      } else {
-        try {
-          setCurrentUser(JSON.parse(storedCurrent));
-          localStorage.setItem('thinhphat_v2_last_activity', now.toString());
-        } catch (err) {}
-      }
-    }
-    loadCentralData();
-
-    // Auto-poll central data every 15 seconds to ensure real-time multi-device collaboration logic!
-    const pollInterval = setInterval(() => {
-      loadCentralData(true);
-    }, 15000);
-
-    return () => clearInterval(pollInterval);
   }, []);
 
-  // Sync state mutation with express API with Bearer token authentication
-  const syncWithServer = async (type: string, data: any[]) => {
+  useEffect(() => {
+    const storedUser = localStorage.getItem('thinhphat_v2_current_user');
+    if (storedUser) {
+      try {
+        setCurrentUser(JSON.parse(storedUser));
+      } catch {}
+    }
+    loadCentralData();
+  }, [loadCentralData]);
+
+  // Generic Central Persistence to JsonDatabaseEngine Backend API
+  const saveCollection = async (type: string, data: any[]) => {
     try {
       const token = localStorage.getItem('thinhphat_v2_auth_token');
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const res = await fetch('/api/save', {
+      await fetch('/api/save', {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token || ''}`
+        },
         body: JSON.stringify({ type, data })
       });
-
-      const resData = await res.json();
-      if (!res.ok || resData.success === false) {
-        console.warn(`[RBAC] Lưu dữ liệu ${type} bị máy chủ từ chối:`, resData.error);
-        if (res.status === 401 && resData.expired) {
-          handleLogout();
-        }
-      }
+      localStorage.setItem(`thinhphat_v2_${type}`, JSON.stringify(data));
     } catch (err) {
-      console.error(`Lỗi đồng bộ dữ liệu ${type} lên máy chủ mạng LAN:`, err);
+      console.error(`Lỗi khi lưu ${type}:`, err);
+      localStorage.setItem(`thinhphat_v2_${type}`, JSON.stringify(data));
     }
   };
 
-  // 2. LocalStorage Persistence synchronizers & LAN Server pushes
-  const savePrintSettings = (newSettings: PrintSettings) => {
-    setPrintSettings(newSettings);
-    localStorage.setItem('thinhphat_v2_settings', JSON.stringify(newSettings));
-    syncWithServer('settings', [newSettings]);
+  const handleAddProduct = (product: Omit<Product, 'id'>) => {
+    const newProd: Product = { ...product, id: `prod_${Date.now()}` };
+    const updated = [newProd, ...products];
+    setProducts(updated);
+    saveCollection('products', updated);
   };
 
-  const saveProducts = (newProds: Product[], customImeis?: ProductIMEI[]) => {
-    const activeImeis = customImeis || imeis;
-    const synced = syncProductsStockWithImeis(newProds, activeImeis);
-    setProducts(synced);
-    localStorage.setItem('thinhphat_v2_products', JSON.stringify(synced));
-    syncWithServer('products', synced);
+  const handleUpdateProduct = (product: Product) => {
+    const updated = products.map(p => p.id === product.id ? product : p);
+    setProducts(updated);
+    saveCollection('products', updated);
   };
 
-  const saveImeis = (newImeis: ProductIMEI[]) => {
-    setImeis(newImeis);
-    localStorage.setItem('thinhphat_v2_imeis', JSON.stringify(newImeis));
-    syncWithServer('imeis', newImeis);
-
-    // Synchronize product stock for products with hasImei
-    setProducts(prevProducts => {
-      const synced = syncProductsStockWithImeis(prevProducts, newImeis);
-      localStorage.setItem('thinhphat_v2_products', JSON.stringify(synced));
-      syncWithServer('products', synced);
-      return synced;
-    });
+  const handleDeleteProduct = (id: string) => {
+    const updated = products.filter(p => p.id !== id);
+    setProducts(updated);
+    saveCollection('products', updated);
   };
 
-  const saveCustomers = (newCusts: Customer[]) => {
-    setCustomers(newCusts);
-    localStorage.setItem('thinhphat_v2_customers', JSON.stringify(newCusts));
-    syncWithServer('customers', newCusts);
-  };
+  const handleAddInvoice = (invoice: SalesInvoice) => {
+    const updatedInvoices = [invoice, ...invoices];
+    setInvoices(updatedInvoices);
+    saveCollection('invoices', updatedInvoices);
 
-  const saveInvoices = (newInvs: SalesInvoice[]) => {
-    setInvoices(newInvs);
-    localStorage.setItem('thinhphat_v2_invoices', JSON.stringify(newInvs));
-    syncWithServer('invoices', newInvs);
-  };
+    const nowStr = invoice.createdAt.slice(0, 10);
+    const newWarranties: WarrantyCard[] = [];
 
-  const saveRepairs = (newReps: RepairTicket[]) => {
-    setRepairs(newReps);
-    localStorage.setItem('thinhphat_v2_repairs', JSON.stringify(newReps));
-    syncWithServer('repairs', newReps);
-  };
+    invoice.items.forEach((item, idx) => {
+      const warrantyMonths = item.warrantyMonths || 12;
+      const expiryDate = computeExpiryDate(nowStr, warrantyMonths);
 
-  const saveWarranties = (newWarrs: WarrantyCard[]) => {
-    setWarranties(newWarrs);
-    localStorage.setItem('thinhphat_v2_warranties', JSON.stringify(newWarrs));
-    syncWithServer('warranties', newWarrs);
-  };
-
-  const createSalesInvoiceFromRepair = (rep: RepairTicket, productsList: Product[]): SalesInvoice => {
-    const invoiceItems: InvoiceItem[] = [];
-
-    if (rep.usedParts && rep.usedParts.length > 0) {
-      rep.usedParts.forEach(part => {
-        const prod = productsList.find(p => p.id === part.productId || p.sku === part.productId || p.name === part.name);
-        const warrMonths = part.warrantyMonths ?? prod?.warrantyMonths ?? 0;
-        invoiceItems.push({
-          productId: part.productId,
-          productName: `Linh kiện: ${part.name}`,
-          quantity: part.quantity,
-          price: part.price,
-          warrantyMonths: warrMonths,
-          imeis: part.imei ? [part.imei] : undefined
+      if (item.imeis && item.imeis.length > 0) {
+        item.imeis.forEach(imeiCode => {
+          newWarranties.push({
+            id: `warr_${Date.now()}_${idx}_${Math.random()}`,
+            serialNumber: imeiCode,
+            productName: item.productName,
+            customerName: invoice.customerName,
+            customerPhone: invoice.customerPhone,
+            purchaseDate: nowStr,
+            warrantyMonths,
+            expiryDate,
+            status: 'active',
+            linkedInvoiceId: invoice.id
+          });
         });
-      });
-    }
-
-    const partsTotal = rep.usedParts ? rep.usedParts.reduce((sum, p) => sum + p.price * p.quantity, 0) : 0;
-    const totalCost = rep.actualCost || rep.estimatedCost || 0;
-    const laborFee = Math.max(0, totalCost - partsTotal);
-
-    if (laborFee > 0 || invoiceItems.length === 0) {
-      let laborWarrMonths = 0;
-      if (rep.warrantyUntil) {
-        const startDateStr = rep.deliveredAt || rep.createdAt.slice(0, 10);
-        const startDate = new Date(startDateStr);
-        const endDate = new Date(rep.warrantyUntil);
-        const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
-        if (diffDays > 0) {
-          if (diffDays <= 4) laborWarrMonths = 0.1;
-          else if (diffDays <= 8) laborWarrMonths = 0.2;
-          else if (diffDays <= 35) laborWarrMonths = 1;
-          else if (diffDays <= 65) laborWarrMonths = 2;
-          else if (diffDays <= 100) laborWarrMonths = 3;
-          else if (diffDays <= 200) laborWarrMonths = 6;
-          else if (diffDays <= 390) laborWarrMonths = 12;
-          else if (diffDays <= 750) laborWarrMonths = 24;
-          else if (diffDays <= 1120) laborWarrMonths = 36;
-          else laborWarrMonths = Math.max(1, Math.round(diffDays / 30));
-        }
-      }
-
-      invoiceItems.push({
-        productId: `repair_labor_${rep.id}`,
-        productName: `Chi phí kỹ thuật & sửa chữa: ${rep.deviceName}`,
-        quantity: 1,
-        price: laborFee > 0 ? laborFee : totalCost,
-        warrantyMonths: laborWarrMonths
-      });
-    }
-
-    const cleanTicketNum = rep.ticketNumber.replace(/^REP-/, '');
-    const invoiceNum = `HD-REP-${cleanTicketNum}`;
-
-    const linkedDebt = debts.find(d => 
-      (d.invoiceId && (d.invoiceId === `inv_repair_${rep.id}` || d.invoiceId === rep.id)) ||
-      (d.invoiceNumber && (d.invoiceNumber === invoiceNum || d.invoiceNumber === rep.ticketNumber || d.invoiceNumber.includes(cleanTicketNum))) ||
-      (d.note && (d.note.includes(rep.ticketNumber) || d.note.includes(cleanTicketNum)))
-    );
-
-    const hasDebt = !!(rep.debtAmount && rep.debtAmount > 0) || !!(linkedDebt && linkedDebt.remainingAmount > 0);
-    const calcDebtAmount = (rep.debtAmount && rep.debtAmount > 0) ? rep.debtAmount : (linkedDebt && linkedDebt.remainingAmount > 0 ? linkedDebt.remainingAmount : 0);
-
-    return {
-      id: `inv_repair_${rep.id}`,
-      invoiceNumber: invoiceNum,
-      customerId: rep.customerId,
-      customerName: rep.customerName,
-      customerPhone: rep.customerPhone,
-      items: invoiceItems,
-      totalAmount: totalCost,
-      paymentMethod: hasDebt ? 'Ghi nợ' : 'Tiền mặt',
-      createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
-      note: `Xuất kho linh kiện & sửa chữa #${rep.ticketNumber} (${rep.deviceName}). Giải pháp: ${rep.solution || 'Thay thế linh kiện'}` + (hasDebt && calcDebtAmount ? ` [Ghi nợ sửa chữa: ${calcDebtAmount}₫]` : ''),
-      processedBy: rep.processedBy || rep.technician || 'Kỹ thuật viên',
-      debtAmount: hasDebt ? calcDebtAmount : 0,
-      debtDueDate: rep.debtDueDate || linkedDebt?.dueDate
-    };
-  };
-
-  // Auto-correct any PC build or Repair service warranty card duration if invoice items / replacement parts specify different warranty months & sync real IMEIs
-  useEffect(() => {
-    if (dbLoading) return;
-
-    let hasWarrChange = false;
-    let hasRepairChange = false;
-
-    // 1. Sync repair tickets if warranty is empty and they have usedParts
-    const updatedRepairs = repairs.map(rep => {
-      if (!rep.warrantyUntil && rep.usedParts && rep.usedParts.length > 0) {
-        let maxPartW = 0;
-        rep.usedParts.forEach(pt => {
-          const prod = products.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
-          const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 0;
-          if (ptW > maxPartW) maxPartW = ptW;
+      } else {
+        newWarranties.push({
+          id: `warr_${Date.now()}_${idx}`,
+          serialNumber: `${invoice.invoiceNumber}-${idx + 1}`,
+          productName: item.productName,
+          customerName: invoice.customerName,
+          customerPhone: invoice.customerPhone,
+          purchaseDate: nowStr,
+          warrantyMonths,
+          expiryDate,
+          status: 'active',
+          linkedInvoiceId: invoice.id
         });
-
-        if (maxPartW > 0) {
-          const baseDate = rep.deliveredAt || rep.createdAt.slice(0, 10);
-          const computedPartExpiry = computeExpiryDate(baseDate, maxPartW);
-
-          hasRepairChange = true;
-          return {
-            ...rep,
-            warrantyUntil: computedPartExpiry
-          };
-        }
-      }
-      return rep;
-    });
-
-    if (hasRepairChange) {
-      saveRepairs(updatedRepairs);
-    }
-
-    // 2. Sync warranty cards
-    if (warranties.length > 0) {
-      let hasWarrChange = false;
-
-      // Filter out orphaned warranty cards whose linked sales invoice has been deleted
-      const cleanedWarranties = warranties.filter(w => {
-        if (w.linkedInvoiceId && !invoices.some(i => i.id === w.linkedInvoiceId)) {
-          hasWarrChange = true;
-          return false;
-        }
-
-        const textToSearch = `${w.notes || ''} ${w.serialNumber || ''} ${w.productName || ''}`;
-        const matchInvNum = textToSearch.match(/(HD-\d+|PC-\d+)/i);
-        if (matchInvNum && matchInvNum[0]) {
-          const referencedInvNum = matchInvNum[0].toUpperCase();
-          const invExists = invoices.some(i => i.invoiceNumber.toUpperCase() === referencedInvNum);
-          if (!invExists) {
-            const isInvoiceGenerated = 
-              !!w.linkedInvoiceId || 
-              (w.notes && (w.notes.includes('Hoá đơn') || w.notes.includes('Hóa đơn') || w.notes.includes('Kích hoạt theo'))) ||
-              w.productName.startsWith('Bộ Cấu Hình PC') ||
-              w.serialNumber.includes('-HD-');
-
-            if (isInvoiceGenerated) {
-              hasWarrChange = true;
-              return false;
-            }
-          }
-        }
-        return true;
-      });
-
-      const syncedWarrs = cleanedWarranties.map(w => {
-        // First check if it's a repair service warranty card
-        const matchedRepair = repairs.find(r => {
-          if (w.linkedRepairId && r.id === w.linkedRepairId) return true;
-          if (r.deviceSerial && w.serialNumber === r.deviceSerial) return true;
-          if (r.ticketNumber) {
-            const cleanTicket = r.ticketNumber.replace(/^REP-/, '');
-            if (w.serialNumber.includes(cleanTicket) || w.serialNumber.includes(r.ticketNumber)) return true;
-            if (w.notes && (w.notes.includes(cleanTicket) || w.notes.includes(r.ticketNumber))) return true;
-          }
-          if (w.customerName === r.customerName && (w.customerPhone === r.customerPhone || !w.customerPhone) && 
-             (w.productName.includes(r.deviceName) || w.productName.includes('Dịch vụ'))) return true;
-          return false;
-        });
-
-        if (matchedRepair) {
-          let maxPartW = 0;
-          if (matchedRepair.usedParts && matchedRepair.usedParts.length > 0) {
-            matchedRepair.usedParts.forEach(pt => {
-              const prod = products.find(p => 
-                p.id === pt.productId || 
-                p.sku === pt.productId || 
-                p.name === pt.name ||
-                pt.name.startsWith(p.name) ||
-                p.name.startsWith(pt.name.split(' (S/N:')[0])
-              );
-              const ptW = pt.warrantyMonths ?? prod?.warrantyMonths ?? 0;
-              if (ptW > maxPartW) maxPartW = ptW;
-            });
-          }
-
-          if (maxPartW > 0) {
-            const purchaseDate = w.purchaseDate || matchedRepair.deliveredAt || matchedRepair.createdAt.slice(0, 10);
-            const correctPartExpiry = computeExpiryDate(purchaseDate, maxPartW);
-
-            if (w.warrantyMonths !== maxPartW || w.expiryDate !== correctPartExpiry || w.linkedRepairId !== matchedRepair.id) {
-              hasWarrChange = true;
-              return {
-                ...w,
-                warrantyMonths: maxPartW,
-                expiryDate: correctPartExpiry,
-                linkedRepairId: matchedRepair.id
-              };
-            }
-          }
-        }
-
-        // Next check PC builds and sales invoices
-        const matchedInv = invoices.find(i => 
-          (w.linkedInvoiceId && i.id === w.linkedInvoiceId) || 
-          (w.serialNumber && w.serialNumber === i.invoiceNumber) ||
-          (i.invoiceNumber.startsWith('PC-') && w.productName.includes(i.invoiceNumber))
-        );
-
-        if (matchedInv && matchedInv.items && matchedInv.items.length > 0) {
-          if (matchedInv.invoiceNumber.startsWith('PC-') || w.productName.startsWith('Bộ Cấu Hình PC')) {
-            const correctMaxWarr = matchedInv.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0);
-            const purchaseDate = w.purchaseDate || matchedInv.createdAt.slice(0, 10);
-            const correctExpiryDate = computeExpiryDate(purchaseDate, correctMaxWarr);
-
-            if (w.warrantyMonths !== correctMaxWarr || w.expiryDate !== correctExpiryDate) {
-              hasWarrChange = true;
-              return {
-                ...w,
-                warrantyMonths: correctMaxWarr,
-                expiryDate: correctExpiryDate
-              };
-            }
-          } else {
-            // If a warranty card currently has a fake generated serial "IMEI-14digits" but the invoice item has real IMEIs, update serialNumber
-            const matchedItem = matchedInv.items.find(it => it.productName === w.productName || it.productId === w.productName);
-            if (matchedItem && matchedItem.imeis && matchedItem.imeis.length > 0) {
-              const realImeisStr = matchedItem.imeis.join(', ');
-              if (w.serialNumber !== realImeisStr && w.serialNumber.startsWith('IMEI-') && !matchedItem.imeis.includes(w.serialNumber)) {
-                hasWarrChange = true;
-                return {
-                  ...w,
-                  serialNumber: realImeisStr
-                };
-              }
-            }
-          }
-        }
-        return w;
-      });
-
-      if (hasWarrChange) {
-        saveWarranties(syncedWarrs);
-      }
-    }
-
-    // 3. Auto-sync repair tickets into sales invoices (Hoá đơn đã bán)
-    let hasInvoiceSync = false;
-    let nextInvoices = [...invoices];
-
-    repairs.forEach(rep => {
-      if ((rep.usedParts && rep.usedParts.length > 0) || rep.status === 'delivered' || rep.status === 'completed' || rep.actualCost > 0) {
-        const repairInvId = `inv_repair_${rep.id}`;
-        const cleanTicketNum = rep.ticketNumber ? rep.ticketNumber.replace(/^REP-/, '') : '';
-        const existingIdx = nextInvoices.findIndex(inv => 
-          inv.id === repairInvId || 
-          inv.invoiceNumber === `HD-REP-${cleanTicketNum}` ||
-          (inv.note && inv.note.includes(rep.ticketNumber))
-        );
-
-        const hasLinkedDebt = debts.some(d => 
-          (d.invoiceId && (d.invoiceId === repairInvId || d.invoiceId === rep.id)) ||
-          (d.invoiceNumber && d.invoiceNumber.includes(cleanTicketNum)) ||
-          (d.note && d.note.includes(rep.ticketNumber))
-        );
-
-        if (existingIdx > -1) {
-          const repairInv = createSalesInvoiceFromRepair(rep, products);
-          const curr = nextInvoices[existingIdx];
-          if (
-            curr.totalAmount !== repairInv.totalAmount ||
-            curr.items.length !== repairInv.items.length ||
-            curr.customerName !== repairInv.customerName ||
-            curr.customerPhone !== repairInv.customerPhone ||
-            curr.paymentMethod !== repairInv.paymentMethod ||
-            curr.debtAmount !== repairInv.debtAmount
-          ) {
-            nextInvoices[existingIdx] = {
-              ...curr,
-              ...repairInv,
-              id: curr.id
-            };
-            hasInvoiceSync = true;
-          }
-        } else if ((rep.debtAmount && rep.debtAmount > 0) || hasLinkedDebt) {
-          const repairInv = createSalesInvoiceFromRepair(rep, products);
-          nextInvoices.unshift(repairInv);
-          hasInvoiceSync = true;
-        }
       }
     });
 
-    if (hasInvoiceSync) {
-      saveInvoices(nextInvoices);
+    if (newWarranties.length > 0) {
+      const updatedWarrs = [...newWarranties, ...warranties];
+      setWarranties(updatedWarrs);
+      saveCollection('warranties', updatedWarrs);
     }
 
-    // 4. Auto-sync & deduplicate debts with repair tickets and sales invoices
-    let nextDebts = [...debts];
-
-    repairs.forEach(rep => {
-      if (rep.debtAmount && rep.debtAmount > 0) {
-        const cleanTicketNum = cleanDocumentNumber(rep.ticketNumber).replace(/^REP-/, '');
-        const invId = `inv_repair_${rep.id}`;
-        const invNum = `HD-REP-${cleanTicketNum}`;
-
-        const existingIdx = nextDebts.findIndex(d => isRepairMatchDebt(rep, d));
-
-        if (existingIdx === -1) {
-          nextDebts.unshift({
-            id: `debt_${Date.now()}_rep_${rep.id}`,
-            invoiceId: invId,
-            invoiceNumber: invNum,
-            customerId: rep.customerId,
-            customerName: rep.customerName,
-            customerPhone: rep.customerPhone,
-            amount: rep.debtAmount,
-            remainingAmount: rep.debtAmount,
-            dueDate: rep.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            status: 'pending',
-            createdAt: rep.deliveredAt ? new Date(rep.deliveredAt).toISOString() : rep.createdAt,
-            note: `Công nợ sửa chữa thiết bị: ${rep.deviceName} (#${rep.ticketNumber})`,
-            payments: []
-          });
-        }
-      }
-    });
-
-    nextInvoices.forEach(inv => {
-      // CRITICAL: Skip synthetic repair invoices! Repair debts are already owned by the repair ticket
-      if (isRepairInvoice(inv)) return;
-
-      if (inv.debtAmount && inv.debtAmount > 0) {
-        const existingIdx = nextDebts.findIndex(d => isInvoiceMatchDebt(inv, d));
-
-        if (existingIdx === -1) {
-          nextDebts.unshift({
-            id: `debt_${Date.now()}_inv_${inv.id}`,
-            invoiceId: inv.id,
-            invoiceNumber: inv.invoiceNumber,
-            customerId: inv.customerId,
-            customerName: inv.customerName,
-            customerPhone: inv.customerPhone,
-            amount: inv.debtAmount,
-            remainingAmount: inv.debtAmount,
-            invoiceTotalAmount: inv.totalAmount,
-            downPayment: inv.totalAmount - inv.debtAmount,
-            dueDate: inv.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            status: 'pending',
-            createdAt: inv.createdAt,
-            note: `Công nợ hóa đơn #${inv.invoiceNumber}` + (inv.note ? ` - ${inv.note}` : ''),
-            payments: []
-          });
-        }
-      }
-    });
-
-    // Run deep deduplication & 2-way sync across all debts/invoices/repairs
-    const { cleanedDebts, cleanedInvoices, cleanedRepairs, hasChanged } = deduplicateAndSyncDebts(
-      nextDebts,
-      nextInvoices,
-      repairs
-    );
-
-    if (hasChanged || cleanedDebts.length !== debts.length) {
-      saveDebts(cleanedDebts);
+    if (invoice.debtAmount && invoice.debtAmount > 0) {
+      const dueDate = invoice.debtDueDate || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+      const newDebt: Debt = {
+        id: `debt_inv_${invoice.id}`,
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerId: invoice.customerId,
+        customerName: invoice.customerName,
+        customerPhone: invoice.customerPhone,
+        amount: invoice.debtAmount,
+        remainingAmount: invoice.debtAmount,
+        dueDate,
+        status: 'pending',
+        createdAt: invoice.createdAt,
+        note: `Công nợ hóa đơn bán lẻ ${invoice.invoiceNumber}`,
+        payments: []
+      };
+      const updatedDebts = [newDebt, ...debts];
+      setDebts(updatedDebts);
+      saveCollection('debts', updatedDebts);
     }
-    if (cleanedInvoices.some((inv, idx) => inv.debtAmount !== nextInvoices[idx]?.debtAmount)) {
-      saveInvoices(cleanedInvoices);
-    }
-    if (cleanedRepairs.some((rep, idx) => rep.debtAmount !== repairs[idx]?.debtAmount)) {
-      saveRepairs(cleanedRepairs);
-    }
-
-    // 5. Automatic synchronization of IMEI status & Product inventory with existing invoices and repair tickets
-    if (imeis && imeis.length > 0) {
-      let hasImeiSync = false;
-      let nextImeis = [...imeis];
-
-      // Build a map of all sold IMEIs from active invoices & repair tickets
-      const soldImeiMap = new Map<string, { docId: string; docNumber?: string }>();
-
-      invoices.forEach(inv => {
-        if (inv.items && Array.isArray(inv.items)) {
-          inv.items.forEach(item => {
-            if (item.imeis && Array.isArray(item.imeis)) {
-              item.imeis.forEach(imStr => {
-                if (imStr && typeof imStr === 'string') {
-                  const clean = imStr.trim().toLowerCase();
-                  if (clean) {
-                    soldImeiMap.set(clean, { docId: inv.id, docNumber: inv.invoiceNumber });
-                  }
-                }
-              });
-            }
-          });
-        }
-      });
-
-      repairs.forEach(rep => {
-        if (rep.usedParts && Array.isArray(rep.usedParts)) {
-          rep.usedParts.forEach(pt => {
-            if (pt.imei && typeof pt.imei === 'string') {
-              const clean = pt.imei.trim().toLowerCase();
-              if (clean) {
-                soldImeiMap.set(clean, { docId: rep.id, docNumber: rep.ticketNumber });
-              }
-            }
-          });
-        }
-      });
-
-      // Check each IMEI in nextImeis
-      nextImeis = nextImeis.map(im => {
-        const cleanImei = (im.imei || '').trim().toLowerCase();
-        const soldInfo = soldImeiMap.get(cleanImei);
-
-        if (soldInfo) {
-          // This IMEI was sold in an invoice or repair ticket
-          if (im.status !== 'sold' || im.invoiceId !== soldInfo.docId) {
-            hasImeiSync = true;
-            return {
-              ...im,
-              status: 'sold' as const,
-              invoiceId: soldInfo.docId
-            };
-          }
-        } else {
-          // Not in any active invoice/repair. If it was marked sold with an invoiceId that no longer exists, revert to in_stock
-          if (im.status === 'sold' && im.invoiceId) {
-            const invExists = invoices.some(i => i.id === im.invoiceId);
-            const repExists = repairs.some(r => r.id === im.invoiceId);
-            if (!invExists && !repExists) {
-              hasImeiSync = true;
-              return {
-                ...im,
-                status: 'in_stock' as const,
-                invoiceId: undefined
-              };
-            }
-          }
-        }
-        return im;
-      });
-
-      if (hasImeiSync) {
-        saveImeis(nextImeis);
-      }
-
-      // Also verify that products stock matches the count of in_stock IMEIs
-      let hasStockSync = false;
-      const nextProducts = products.map(p => {
-        if (p.hasImei) {
-          const inStockCount = nextImeis.filter(i => i.productId === p.id && i.status === 'in_stock').length;
-          if (p.stock !== inStockCount) {
-            hasStockSync = true;
-            return { ...p, stock: inStockCount };
-          }
-        }
-        return p;
-      });
-
-      if (hasStockSync) {
-        saveProducts(nextProducts, nextImeis);
-      }
-    }
-  }, [dbLoading, invoices, warranties, repairs, products, debts, imeis]);
-
-  const saveCategories = (newCats: Category[]) => {
-    setCategories(newCats);
-    localStorage.setItem('thinhphat_v2_categories', JSON.stringify(newCats));
-    syncWithServer('categories', newCats);
   };
 
-  const saveUsers = (newUsers: User[]) => {
-    setUsers(newUsers);
-    localStorage.setItem('thinhphat_v2_users', JSON.stringify(newUsers));
-    syncWithServer('users', newUsers);
+  const handleAddCustomer = (customer: Customer) => {
+    const updated = [customer, ...customers];
+    setCustomers(updated);
+    saveCollection('customers', updated);
   };
 
-  const saveDebts = (newDebts: Debt[]) => {
-    setDebts(newDebts);
-    localStorage.setItem('thinhphat_v2_debts', JSON.stringify(newDebts));
-    syncWithServer('debts', newDebts);
+  const handleEditCustomer = (customer: Customer) => {
+    const updated = customers.map(c => c.id === customer.id ? customer : c);
+    setCustomers(updated);
+    saveCollection('customers', updated);
   };
 
-  const saveSuppliers = (newSuppliers: Supplier[]) => {
-    setSuppliers(newSuppliers);
-    localStorage.setItem('thinhphat_v2_suppliers', JSON.stringify(newSuppliers));
-    syncWithServer('suppliers', newSuppliers);
+  const handleAddCategory = (name: string) => {
+    const newCat: Category = { id: `cat_${Date.now()}`, name };
+    const updated = [...categories, newCat];
+    setCategories(updated);
+    saveCollection('categories', updated);
   };
 
-  const saveImportOrders = (newOrders: ImportOrder[]) => {
-    setImportOrders(newOrders);
-    localStorage.setItem('thinhphat_v2_import_orders', JSON.stringify(newOrders));
-    syncWithServer('import_orders', newOrders);
+  const handleUpdateCategory = (id: string, name: string) => {
+    const updated = categories.map(c => c.id === id ? { ...c, name } : c);
+    setCategories(updated);
+    saveCollection('categories', updated);
   };
 
-  const saveActivities = (newActivities: StaffActivityLog[]) => {
-    setActivities(newActivities);
-    localStorage.setItem('thinhphat_v2_activities', JSON.stringify(newActivities));
-    syncWithServer('activities', newActivities);
+  const handleDeleteCategory = (id: string) => {
+    const updated = categories.filter(c => c.id !== id);
+    setCategories(updated);
+    saveCollection('categories', updated);
   };
 
-  const logActivity = (
-    type: ActivityType,
-    title: string,
-    details: string,
-    amount?: number,
-    severity: 'info' | 'success' | 'warning' | 'danger' = 'info',
-    actorOverride?: { id: string; name: string; role: UserRole }
+  const handleAddRepair = (repair: RepairTicket) => {
+    const updated = [repair, ...repairs];
+    setRepairs(updated);
+    saveCollection('repairs', updated);
+  };
+
+  const handleUpdateRepair = (repair: RepairTicket) => {
+    const updated = repairs.map(r => r.id === repair.id ? repair : r);
+    setRepairs(updated);
+    saveCollection('repairs', updated);
+  };
+
+  const handleUpdateRepairStatus = (
+    id: string, 
+    status: any, 
+    finalDetails?: any
   ) => {
-    const actorName = actorOverride?.name || currentUser?.fullName || 'Nhân viên';
-    const actorId = actorOverride?.id || currentUser?.id || 'unknown';
-    const actorRole = actorOverride?.role || currentUser?.role || 'sales';
-
-    const newLog: StaffActivityLog = {
-      id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      timestamp: new Date().toISOString(),
-      userId: actorId,
-      userName: actorName,
-      userRole: actorRole,
-      type,
-      title,
-      details,
-      amount,
-      readByOwner: false,
-      severity
-    };
-
-    setActivities(prev => {
-      const updated = [newLog, ...prev].slice(0, 300);
-      localStorage.setItem('thinhphat_v2_activities', JSON.stringify(updated));
-      syncWithServer('activities', updated);
-      return updated;
+    const updated = repairs.map(r => {
+      if (r.id === id) {
+        return {
+          ...r,
+          status,
+          ...(finalDetails || {})
+        };
+      }
+      return r;
     });
+    setRepairs(updated);
+    saveCollection('repairs', updated);
   };
 
-  const handleMarkLogRead = (id?: string) => {
-    setActivities(prev => {
-      const updated = prev.map(a => (!id || a.id === id ? { ...a, readByOwner: true } : a));
-      localStorage.setItem('thinhphat_v2_activities', JSON.stringify(updated));
-      syncWithServer('activities', updated);
-      return updated;
-    });
+  const handleUpdateImeis = (updatedImeis: ProductIMEI[]) => {
+    setImeis(updatedImeis);
+    saveCollection('imeis', updatedImeis);
+    setProducts(syncProductsWithImeis(products, updatedImeis));
   };
 
-  const handleClearLogs = () => {
-    setActivities([]);
-    localStorage.setItem('thinhphat_v2_activities', JSON.stringify([]));
-    syncWithServer('activities', []);
+  const handleUpdateDebts = (updatedDebts: Debt[]) => {
+    setDebts(updatedDebts);
+    saveCollection('debts', updatedDebts);
   };
 
-  const handleAddUser = (u: Omit<User, 'id' | 'createdAt'>) => {
-    const payload: User = {
-      ...u,
-      id: `usr_${Date.now()}`,
-      createdAt: new Date().toISOString()
-    };
-    saveUsers([...users, payload]);
-    logActivity('user', 'Thêm tài khoản nhân viên mới', `Họ tên: ${u.fullName} (@${u.username}) - Vai trò: ${u.role}`, undefined, 'warning');
+  const handleUpdateSuppliers = (updatedSuppliers: Supplier[]) => {
+    setSuppliers(updatedSuppliers);
+    saveCollection('suppliers', updatedSuppliers);
   };
 
-  const handleUpdateUser = (updatedUser: User) => {
-    const updated = users.map(u => u.id === updatedUser.id ? updatedUser : u);
-    saveUsers(updated);
-    if (currentUser && currentUser.id === updatedUser.id) {
-      setCurrentUser(updatedUser);
-      localStorage.setItem('thinhphat_v2_current_user', JSON.stringify(updatedUser));
-    }
-    logActivity('user', 'Cập nhật tài khoản & phân quyền nhân viên', `Họ tên: ${updatedUser.fullName} (@${updatedUser.username}) - Vai trò: ${updatedUser.role}`, undefined, 'warning');
+  const handleUpdatePrintSettings = (settings: PrintSettings) => {
+    setPrintSettings(settings);
+    saveCollection('settings', [settings]);
+  };
+
+  const handleAddUser = (user: Omit<User, 'id' | 'createdAt'>) => {
+    const newUser: User = { ...user, id: `usr_${Date.now()}`, createdAt: new Date().toISOString() };
+    const updated = [...users, newUser];
+    setUsers(updated);
+    saveCollection('users', updated);
+  };
+
+  const handleUpdateUser = (user: User) => {
+    const updated = users.map(u => u.id === user.id ? user : u);
+    setUsers(updated);
+    saveCollection('users', updated);
   };
 
   const handleDeleteUser = (id: string) => {
-    const targetUser = users.find(u => u.id === id);
     const updated = users.filter(u => u.id !== id);
-    saveUsers(updated);
-    logActivity('user', 'Xóa tài khoản nhân viên', `Tài khoản: ${targetUser ? targetUser.fullName : id}`, undefined, 'danger');
+    setUsers(updated);
+    saveCollection('users', updated);
   };
 
-  // Auto logout after 4 hours of inactivity
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const INACTIVITY_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 hours in ms
-    let lastSaveTime = Date.now();
-
-    const handleUserActivity = () => {
-      const now = Date.now();
-      // Throttle localStorage updates to once every 10 seconds to avoid performance degradation
-      if (now - lastSaveTime > 10000) {
-        lastSaveTime = now;
-        localStorage.setItem('thinhphat_v2_last_activity', now.toString());
-      }
-    };
-
-    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
-    activityEvents.forEach(evt => {
-      window.addEventListener(evt, handleUserActivity, { passive: true });
-    });
-
-    const checkInactivity = () => {
-      const storedLastAct = localStorage.getItem('thinhphat_v2_last_activity');
-      if (storedLastAct) {
-        const lastActTime = parseInt(storedLastAct, 10);
-        if (!isNaN(lastActTime) && Date.now() - lastActTime >= INACTIVITY_TIMEOUT_MS) {
-          setIsAutoLoggedOut(true);
-          handleLogout();
-        }
-      }
-    };
-
-    // Check inactivity every 30 seconds
-    const intervalId = setInterval(checkInactivity, 30000);
-
-    // Also check on tab focus/visibility
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        checkInactivity();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      activityEvents.forEach(evt => {
-        window.removeEventListener(evt, handleUserActivity);
-      });
-      clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [currentUser]);
-
-  const handleLogin = (user: User, token?: string) => {
+  const handleLoginSuccess = (user: User, token?: string) => {
     setCurrentUser(user);
-    setIsAutoLoggedOut(false);
-    if (token) {
-      localStorage.setItem('thinhphat_v2_auth_token', token);
-    }
     localStorage.setItem('thinhphat_v2_current_user', JSON.stringify(user));
-    localStorage.setItem('thinhphat_v2_last_activity', Date.now().toString());
-    // Immediately reload central database with user's specific role token (e.g. admin loads costs)
+    if (token) localStorage.setItem('thinhphat_v2_auth_token', token);
     loadCentralData(false, token);
   };
 
   const handleLogout = () => {
-    setIsMobileMenuOpen(false);
-    setShowNotifDropdown(false);
-    setIsAutoLoggedOut(false);
     setCurrentUser(null);
     localStorage.removeItem('thinhphat_v2_current_user');
-    localStorage.removeItem('thinhphat_v2_last_activity');
     localStorage.removeItem('thinhphat_v2_auth_token');
   };
 
   if (!currentUser) {
-    return <Login users={users} onLoginSuccess={handleLogin} isAutoLoggedOut={isAutoLoggedOut} />;
+    return (
+      <Login 
+        users={users}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    );
   }
 
-  // State manipulation triggers
-  const handleAddProduct = (newProd: Omit<Product, 'id'>) => {
-    const payload: Product = {
-      ...newProd,
-      id: `p_${Date.now()}`
-    };
-    saveProducts([payload, ...products]);
-    logActivity('inventory', 'Thêm sản phẩm mới vào kho', `Tên: ${newProd.name} (SKU: ${newProd.sku || '---'}) - Giá bán: ${newProd.price.toLocaleString('vi-VN')}đ - Tồn ban đầu: ${newProd.stock}`, newProd.price, 'info');
-  };
-
-  const handleUpdateProduct = (updatedProd: Product) => {
-    const updated = products.map(p => p.id === updatedProd.id ? updatedProd : p);
-    saveProducts(updated);
-    logActivity('inventory', 'Chỉnh sửa thông tin sản phẩm', `Sản phẩm: ${updatedProd.name} (SKU: ${updatedProd.sku || '---'}) - Giá: ${updatedProd.price.toLocaleString('vi-VN')}đ`, updatedProd.price, 'info');
-  };
-
-  const handleDeleteProduct = (id: string) => {
-    const targetProd = products.find(p => p.id === id);
-    const updated = products.filter(p => p.id !== id);
-    saveProducts(updated);
-    logActivity('inventory', 'Xóa sản phẩm khỏi kho', `Đã xóa sản phẩm: ${targetProd ? targetProd.name : id}`, undefined, 'danger');
-  };
-
-  const handleAddCategory = (name: string) => {
-    const newCat: Category = {
-      id: `cat_${Date.now()}`,
-      name
-    };
-    saveCategories([...categories, newCat]);
-    logActivity('inventory', 'Thêm danh mục sản phẩm', `Danh mục mới: ${name}`, undefined, 'info');
-  };
-
-  const handleUpdateCategory = (id: string, newName: string) => {
-    const updated = categories.map(c => c.id === id ? { ...c, name: newName } : c);
-    saveCategories(updated);
-    logActivity('inventory', 'Cập nhật danh mục sản phẩm', `Đổi tên danh mục -> ${newName}`, undefined, 'info');
-  };
-
-  const handleDeleteCategory = (id: string) => {
-    const targetCat = categories.find(c => c.id === id);
-    const updated = categories.filter(c => c.id !== id);
-    saveCategories(updated);
-    logActivity('inventory', 'Xóa danh mục sản phẩm', `Danh mục: ${targetCat ? targetCat.name : id}`, undefined, 'danger');
-  };
-
-  const handleUpdateProductStock = (id: string, newStock: number) => {
-    if (currentUser?.role !== 'admin') {
-      alert('Từ chối truy cập (403 Forbidden): Thao tác điều chỉnh kho trực tiếp bắt buộc quyền Quản trị viên (Admin)!');
-      return;
-    }
-
-    const token = localStorage.getItem('thinhphat_v2_auth_token');
-    fetch('/api/inventory/adjust-stock', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ productId: id, newStock, reason: 'Điều chỉnh trực tiếp qua giao diện' })
-    }).catch(err => console.error('Lỗi API adjust-stock:', err));
-
-    const targetProd = products.find(p => p.id === id);
-    const updated = products.map(p => p.id === id ? { ...p, stock: newStock } : p);
-    saveProducts(updated);
-    logActivity('inventory', 'Điều chỉnh số lượng hàng tồn kho', `Sản phẩm: ${targetProd ? targetProd.name : id} -> Tồn kho mới: ${newStock}`, undefined, 'warning');
-  };
-
-  const handleAddInvoice = (newInvoice: SalesInvoice) => {
-    saveInvoices([...invoices, newInvoice]);
-    logActivity('sale', 'Bán hàng - Tạo hóa đơn POS mới', `Số HĐ: #${newInvoice.invoiceNumber} - Khách: ${newInvoice.customerName} - SĐT: ${newInvoice.customerPhone || 'Không có'} - ${newInvoice.items.length} mặt hàng`, newInvoice.totalAmount, 'success');
-
-    // Track debt if debtAmount > 0
-    if (newInvoice.debtAmount && newInvoice.debtAmount > 0) {
-      const newDebt: Debt = {
-        id: `debt_${Date.now()}`,
-        invoiceId: newInvoice.id,
-        invoiceNumber: newInvoice.invoiceNumber,
-        customerId: newInvoice.customerId,
-        customerName: newInvoice.customerName,
-        customerPhone: newInvoice.customerPhone,
-        amount: newInvoice.debtAmount,
-        remainingAmount: newInvoice.debtAmount,
-        invoiceTotalAmount: newInvoice.totalAmount,
-        downPayment: newInvoice.totalAmount - newInvoice.debtAmount,
-        dueDate: newInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        status: 'pending',
-        createdAt: newInvoice.createdAt,
-        note: `Công nợ hóa đơn #${newInvoice.invoiceNumber}` + (newInvoice.note ? ` - ${newInvoice.note}` : ''),
-        payments: []
-      };
-      saveDebts([...debts, newDebt]);
-    }
-
-    // Deduct stock for products sold & mark IMEIs as sold
-    let updatedProducts = [...products];
-    let updatedImeis = [...imeis];
-
-    newInvoice.items.forEach(item => {
-      // 1. Mark explicit IMEIs as sold
-      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
-        item.imeis.forEach(imeiToMark => {
-          if (!imeiToMark) return;
-          const cleanMark = imeiToMark.trim().toLowerCase();
-          const imeiIdx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanMark);
-          if (imeiIdx > -1) {
-            updatedImeis[imeiIdx] = { ...updatedImeis[imeiIdx], status: 'sold', invoiceId: newInvoice.id };
-          }
-        });
-      }
-
-      // 2. Find matching product with multiple fallbacks
-      const cleanItemName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
-      const prod = updatedProducts.find(p => 
-        p.id === item.productId || 
-        (p.sku && p.sku === item.productId) || 
-        p.name === item.productName ||
-        p.name === cleanItemName ||
-        item.productName.includes(p.name) ||
-        (cleanItemName && p.name.includes(cleanItemName))
-      );
-
-      if (prod) {
-        if (!prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
-          prod.stock = Math.max(0, prod.stock - item.quantity);
-        }
-      }
-    });
-
-    // 3. Atomically sync product stock based on remaining in_stock IMEIs
-    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
-
-    saveProducts(updatedProducts, updatedImeis);
-    saveImeis(updatedImeis);
-
-    // Relational auto-provision of active warranty records!
-    const updatedWarranties = [...warranties];
-    
-    // Group PC Build into a single Warranty card using Invoice Number as Serial
-    if (newInvoice.invoiceNumber.startsWith('PC-') && newInvoice.items.length > 0) {
-        const maxWarr = newInvoice.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0);
-        const purchaseDate = newInvoice.createdAt.slice(0, 10);
-        const expiryDateStr = computeExpiryDate(purchaseDate, maxWarr);
-        
-        const card: WarrantyCard = {
-          id: `warr_${Date.now()}_pc`,
-          serialNumber: newInvoice.invoiceNumber,
-          productName: `Bộ Cấu Hình PC - ${newInvoice.invoiceNumber}`,
-          customerName: newInvoice.customerName,
-          customerPhone: newInvoice.customerPhone,
-          purchaseDate,
-          warrantyMonths: maxWarr,
-          expiryDate: expiryDateStr,
-          status: 'active',
-          notes: `Bảo hành theo linh kiện chi tiết trong Hoá đơn ${newInvoice.invoiceNumber}`,
-          linkedInvoiceId: newInvoice.id
-        };
-        updatedWarranties.push(card);
-    } else {
-      newInvoice.items.forEach(item => {
-        const prod = products.find(p => p.id === item.productId);
-        const warrMonths = item.warrantyMonths !== undefined ? item.warrantyMonths : (prod ? prod.warrantyMonths : 0);
-        
-        if (warrMonths > 0) {
-          const purchaseDate = newInvoice.createdAt.slice(0, 10);
-          const expiryDateStr = computeExpiryDate(purchaseDate, warrMonths);
-          
-          if (item.imeis && item.imeis.length > 0) {
-            // Create warranty record for each actual product IMEI
-            item.imeis.forEach((imeiStr, iIdx) => {
-              const card: WarrantyCard = {
-                id: `warr_${Date.now()}_${iIdx}_${Math.random().toString(36).substr(2, 5)}`,
-                serialNumber: imeiStr.trim(),
-                productName: item.productName,
-                customerName: newInvoice.customerName,
-                customerPhone: newInvoice.customerPhone,
-                purchaseDate,
-                warrantyMonths: warrMonths,
-                expiryDate: expiryDateStr,
-                status: 'active',
-                notes: `Kích hoạt theo Hoá đơn ${newInvoice.invoiceNumber}`,
-                linkedInvoiceId: newInvoice.id
-              };
-              updatedWarranties.push(card);
-            });
-          } else {
-            // Product item without IMEI
-            const serialStr = prod?.sku ? `${prod.sku}-${newInvoice.invoiceNumber}` : `${newInvoice.invoiceNumber}-${item.productId}`;
-            const card: WarrantyCard = {
-              id: `warr_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-              serialNumber: serialStr,
-              productName: item.productName,
-              customerName: newInvoice.customerName,
-              customerPhone: newInvoice.customerPhone,
-              purchaseDate,
-              warrantyMonths: warrMonths,
-              expiryDate: expiryDateStr,
-              status: 'active',
-              notes: `Từ Hoá đơn số ${newInvoice.invoiceNumber}`,
-              linkedInvoiceId: newInvoice.id
-            };
-            updatedWarranties.push(card);
-          }
-        }
-      });
-    }
-
-    if (updatedWarranties.length > warranties.length) {
-      saveWarranties(updatedWarranties);
-    }
-  };
-
-  const handleUpdateInvoice = (updatedInvoice: SalesInvoice) => {
-    const oldInvoice = invoices.find(inv => inv.id === updatedInvoice.id);
-    if (!oldInvoice) return;
-
-    let updatedProducts = [...products];
-    let updatedImeis = [...imeis];
-
-    // Revert old items stock & IMEIs
-    oldInvoice.items.forEach(item => {
-      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
-        item.imeis.forEach(im => {
-          if (!im) return;
-          const cleanIm = im.trim().toLowerCase();
-          const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
-          if (idx > -1) {
-            updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
-          }
-        });
-      }
-
-      const cleanOldName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
-      const prod = updatedProducts.find(p => 
-        p.id === item.productId || 
-        (p.sku && p.sku === item.productId) || 
-        p.name === item.productName ||
-        p.name === cleanOldName ||
-        item.productName.includes(p.name) ||
-        (cleanOldName && p.name.includes(cleanOldName))
-      );
-      if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
-        prod.stock += item.quantity;
-      }
-    });
-
-    // Deduct new items stock & IMEIs
-    updatedInvoice.items.forEach(item => {
-      if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
-        item.imeis.forEach(im => {
-          if (!im) return;
-          const cleanIm = im.trim().toLowerCase();
-          const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
-          if (idx > -1) {
-            updatedImeis[idx] = { ...updatedImeis[idx], status: 'sold', invoiceId: updatedInvoice.id };
-          }
-        });
-      }
-
-      const cleanNewName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
-      const prod = updatedProducts.find(p => 
-        p.id === item.productId || 
-        (p.sku && p.sku === item.productId) || 
-        p.name === item.productName ||
-        p.name === cleanNewName ||
-        item.productName.includes(p.name) ||
-        (cleanNewName && p.name.includes(cleanNewName))
-      );
-      if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
-        prod.stock = Math.max(0, prod.stock - item.quantity);
-      }
-    });
-
-    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
-
-    saveProducts(updatedProducts, updatedImeis);
-    saveImeis(updatedImeis);
-
-    const nextInvoices = invoices.map(inv => inv.id === updatedInvoice.id ? updatedInvoice : inv);
-    saveInvoices(nextInvoices);
-
-    // Sync linked debt if exists
-    const existingDebtIdx = debts.findIndex(d => isInvoiceMatchDebt(updatedInvoice, d));
-
-    if (updatedInvoice.debtAmount && updatedInvoice.debtAmount > 0) {
-      if (existingDebtIdx > -1) {
-        const nextDebts = [...debts];
-        const existing = nextDebts[existingDebtIdx];
-        const totalPaid = (existing.payments || []).reduce((sum, p) => sum + p.amount, 0);
-        const newRemaining = Math.max(0, updatedInvoice.debtAmount - totalPaid);
-
-        nextDebts[existingDebtIdx] = {
-          ...existing,
-          amount: updatedInvoice.debtAmount,
-          remainingAmount: newRemaining,
-          invoiceTotalAmount: updatedInvoice.totalAmount,
-          downPayment: updatedInvoice.totalAmount - updatedInvoice.debtAmount,
-          status: newRemaining === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending'),
-          customerName: updatedInvoice.customerName,
-          customerPhone: updatedInvoice.customerPhone,
-          note: `Công nợ hóa đơn #${updatedInvoice.invoiceNumber}` + (updatedInvoice.note ? ` - ${updatedInvoice.note}` : '')
-        };
-        saveDebts(nextDebts);
-      } else {
-        const newDebt: Debt = {
-          id: `debt_${Date.now()}`,
-          invoiceId: updatedInvoice.id,
-          invoiceNumber: updatedInvoice.invoiceNumber,
-          customerId: updatedInvoice.customerId,
-          customerName: updatedInvoice.customerName,
-          customerPhone: updatedInvoice.customerPhone,
-          amount: updatedInvoice.debtAmount,
-          remainingAmount: updatedInvoice.debtAmount,
-          invoiceTotalAmount: updatedInvoice.totalAmount,
-          downPayment: updatedInvoice.totalAmount - updatedInvoice.debtAmount,
-          dueDate: updatedInvoice.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          status: 'pending',
-          createdAt: updatedInvoice.createdAt,
-          note: `Công nợ hóa đơn #${updatedInvoice.invoiceNumber}` + (updatedInvoice.note ? ` - ${updatedInvoice.note}` : ''),
-          payments: []
-        };
-        saveDebts([...debts, newDebt]);
-      }
-    } else if (existingDebtIdx > -1) {
-      const nextDebts = [...debts];
-      const existing = nextDebts[existingDebtIdx];
-      // Only mark paid if no payments exist or remaining balance was settled
-      if (!existing.payments || existing.payments.length === 0) {
-        nextDebts[existingDebtIdx] = {
-          ...existing,
-          remainingAmount: 0,
-          status: 'paid'
-        };
-        saveDebts(nextDebts);
-      }
-    }
-
-    // Sync linked warranty cards if updated
-    const linkedWarrIdx = warranties.findIndex(w => 
-      (w.linkedInvoiceId && w.linkedInvoiceId === updatedInvoice.id) ||
-      (w.serialNumber && w.serialNumber === updatedInvoice.invoiceNumber) ||
-      (updatedInvoice.invoiceNumber.startsWith('PC-') && w.productName.includes(updatedInvoice.invoiceNumber))
-    );
-    if (linkedWarrIdx > -1) {
-      const nextWarrs = [...warranties];
-      const targetWarr = nextWarrs[linkedWarrIdx];
-      const correctMaxWarr = updatedInvoice.items.length > 0 
-        ? updatedInvoice.items.reduce((max, item) => Math.max(max, item.warrantyMonths ?? 0), 0)
-        : 0;
-      const purchaseDate = targetWarr.purchaseDate || updatedInvoice.createdAt.slice(0, 10);
-      const correctExpiryDate = computeExpiryDate(purchaseDate, correctMaxWarr);
-
-      nextWarrs[linkedWarrIdx] = {
-        ...targetWarr,
-        customerName: updatedInvoice.customerName,
-        customerPhone: updatedInvoice.customerPhone,
-        warrantyMonths: correctMaxWarr,
-        expiryDate: correctExpiryDate
-      };
-      saveWarranties(nextWarrs);
-    }
-
-    logActivity(
-      'sale',
-      'Chỉnh sửa hóa đơn bán hàng',
-      `Cập nhật thông tin hóa đơn ${updatedInvoice.invoiceNumber} (${updatedInvoice.customerName}) - Tổng tiền: ${updatedInvoice.totalAmount.toLocaleString('vi-VN')}đ`,
-      updatedInvoice.totalAmount,
-      'warning'
-    );
-  };
-
-  /**
-   * Xóa hóa đơn bán hàng & Hoàn nguyên 100% tự động
-   * - Phục hồi số lượng tồn kho (stock = stock + quantity) cho hàng hóa không IMEI
-   * - Phục hồi trạng thái IMEI về 'in_stock' và xóa invoiceId
-   * - Đồng bộ lại tồn kho tổng qua syncProductsStockWithImeis
-   * - Hủy/gạch nợ trong danh sách công nợ (debts)
-   * - Hủy/xóa các thẻ bảo hành liên đới (warranties)
-   * - Hủy ghi nợ trên phiếu sửa chữa nếu hóa đơn này liên kết với dịch vụ sửa chữa
-   */
-  const handleDeleteInvoice = (invoiceId: string) => {
-    if (currentUser?.role !== 'admin') {
-      alert('Từ chối truy cập (403 Forbidden): Thao tác XÓA hóa đơn bắt buộc quyền Quản trị viên (Admin)!');
-      return;
-    }
-
-    // Call server DELETE endpoint
-    const token = localStorage.getItem('thinhphat_v2_auth_token');
-    fetch(`/api/invoices/${invoiceId}`, {
-      method: 'DELETE',
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-    }).catch(err => console.error('Lỗi API delete invoice:', err));
-
-    try {
-      const targetInvoice = invoices.find(inv => inv.id === invoiceId);
-      if (!targetInvoice) return;
-
-      let updatedProducts = [...products];
-      let updatedImeis = [...imeis];
-
-      // 1. Phục hồi trạng thái IMEI & Tồn kho
-      targetInvoice.items.forEach(item => {
-        // Phục hồi các IMEI được ghi rõ trong mục hàng
-        if (item.imeis && Array.isArray(item.imeis) && item.imeis.length > 0) {
-          item.imeis.forEach(im => {
-            if (!im) return;
-            const cleanIm = im.trim().toLowerCase();
-            const idx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
-            if (idx > -1) {
-              updatedImeis[idx] = { ...updatedImeis[idx], status: 'in_stock', invoiceId: undefined };
-            }
-          });
-        }
-
-        // Phục hồi stock cho các mặt hàng không theo dõi IMEI
-        const cleanItemName = item.productName.replace(/^\[PC Build - [^\]]+\]\s*/i, '').trim();
-        const prod = updatedProducts.find(p => 
-          p.id === item.productId || 
-          (p.sku && p.sku === item.productId) || 
-          p.name === item.productName ||
-          p.name === cleanItemName ||
-          item.productName.includes(p.name) ||
-          (cleanItemName && p.name.includes(cleanItemName))
-        );
-        if (prod && !prod.hasImei && (!item.imeis || item.imeis.length === 0)) {
-          prod.stock += (item.quantity || 1);
-        }
-      });
-
-      // Phục hồi toàn bộ IMEI trong kho có invoiceId trùng với hóa đơn này
-      updatedImeis = updatedImeis.map(i => {
-        if (i.invoiceId === targetInvoice.id) {
-          return { ...i, status: 'in_stock', invoiceId: undefined };
-        }
-        return i;
-      });
-
-      // Đồng bộ lại số lượng tồn kho sản phẩm với danh sách IMEI
-      updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
-
-      saveProducts(updatedProducts, updatedImeis);
-      saveImeis(updatedImeis);
-
-      // 2. Xóa hóa đơn khỏi danh sách
-      const nextInvoices = invoices.filter(inv => inv.id !== invoiceId);
-      saveInvoices(nextInvoices);
-
-      // 3. Hoàn nguyên / hủy công nợ liên quan
-      const nextDebts = debts.filter(d => !isInvoiceMatchDebt(targetInvoice, d));
-      saveDebts(nextDebts);
-
-      // 4. Xóa ghi nợ trên phiếu sửa chữa nếu hóa đơn này sinh ra từ dịch vụ sửa chữa
-      let repairsChanged = false;
-      const nextRepairs = repairs.map(rep => {
-        if (
-          targetInvoice.id === `inv_repair_${rep.id}` ||
-          (targetInvoice.invoiceNumber && (targetInvoice.invoiceNumber.includes(rep.ticketNumber) || targetInvoice.invoiceNumber.includes(rep.ticketNumber.replace(/^REP-/, '')))) ||
-          (targetInvoice.note && targetInvoice.note.includes(rep.ticketNumber))
-        ) {
-          if (rep.debtAmount && rep.debtAmount > 0) {
-            repairsChanged = true;
-            return {
-              ...rep,
-              debtAmount: 0,
-              debtDueDate: undefined
-            };
-          }
-        }
-        return rep;
-      });
-
-      if (repairsChanged) {
-        saveRepairs(nextRepairs);
-      }
-
-      // 5. Thu hồi / xóa thẻ bảo hành liên quan
-      const invNum = targetInvoice.invoiceNumber;
-      const nextWarranties = warranties.filter(w => !(
-        (w.linkedInvoiceId && w.linkedInvoiceId === targetInvoice.id) ||
-        (w.serialNumber && (w.serialNumber === invNum || w.serialNumber.endsWith(`-${invNum}`))) ||
-        (w.notes && invNum && w.notes.includes(invNum)) ||
-        (invNum && w.productName.includes(invNum))
-      ));
-      saveWarranties(nextWarranties);
-
-      logActivity(
-        'sale',
-        'Xóa hóa đơn bán hàng & Hoàn nguyên',
-        `Đã xóa hóa đơn ${targetInvoice.invoiceNumber} (${targetInvoice.customerName}) - Đã hoàn trả tồn kho, phục hồi IMEI, hủy công nợ & thu hồi bảo hành liên quan.`,
-        targetInvoice.totalAmount,
-        'danger'
-      );
-    } catch (err) {
-      console.error('Lỗi khi xóa hóa đơn:', err);
-      alert('Đã xảy ra sự cố khi hoàn nguyên hóa đơn. Vui lòng thử lại!');
-    }
-  };
-
-  /**
-   * Helper điều chỉnh tồn kho linh kiện sửa chữa:
-   * Chỉ khi phiếu ở trạng thái 'completed' hoặc 'delivered', kho mới chính thức trừ hàng và đổi trạng thái IMEI thành 'sold'.
-   * Khi chuyển về các trạng thái chưa xong ('checking', 'repairing', 'cancelled') hoặc khi xóa phiếu, toàn bộ linh kiện được hoàn nguyên 100%.
-   */
-  const applyRepairPartsInventoryChange = (
-    oldTicket: RepairTicket | undefined,
-    newTicket: RepairTicket | undefined,
-    currentProducts: Product[],
-    currentImeis: ProductIMEI[]
-  ): { updatedProducts: Product[]; updatedImeis: ProductIMEI[] } => {
-    let updatedProducts = currentProducts.map(p => ({ ...p }));
-    let updatedImeis = currentImeis.map(i => ({ ...i }));
-
-    const wasDeducted = oldTicket && (oldTicket.status === 'completed' || oldTicket.status === 'delivered');
-    const willBeDeducted = newTicket && (newTicket.status === 'completed' || newTicket.status === 'delivered');
-
-    // 1. Nếu phiếu cũ đã từng trừ kho, hoàn trả lại toàn bộ linh kiện cũ trước
-    if (wasDeducted && oldTicket) {
-      const partsToRevert = oldTicket.usedParts || [];
-      partsToRevert.forEach(part => {
-        if (part.imei) {
-          const cleanIm = part.imei.trim().toLowerCase();
-          const imeiIdx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
-          if (imeiIdx > -1) {
-            updatedImeis[imeiIdx] = { 
-              ...updatedImeis[imeiIdx], 
-              status: 'in_stock', 
-              repairTicketId: undefined 
-            };
-          }
-        } else {
-          const prod = updatedProducts.find(p => 
-            p.id === part.productId || 
-            (p.sku && p.sku === part.productId) || 
-            p.name === part.name
-          );
-          if (prod && !prod.hasImei) {
-            prod.stock += (part.quantity || 1);
-          }
-        }
-      });
-
-      // Giải phóng bất kỳ IMEI nào đang gắn với mã phiếu cũ này
-      updatedImeis = updatedImeis.map(i => {
-        if (i.repairTicketId === oldTicket.id) {
-          return { ...i, status: 'in_stock', repairTicketId: undefined };
-        }
-        return i;
-      });
-    }
-
-    // 2. Nếu phiếu mới đạt trạng thái hoàn thành / bàn giao, tiến hành trừ kho linh kiện mới
-    if (willBeDeducted && newTicket) {
-      const partsToDeduct = newTicket.usedParts || [];
-      partsToDeduct.forEach(part => {
-        if (part.imei) {
-          const cleanIm = part.imei.trim().toLowerCase();
-          const imeiIdx = updatedImeis.findIndex(i => (i.imei || '').trim().toLowerCase() === cleanIm);
-          if (imeiIdx > -1) {
-            updatedImeis[imeiIdx] = { 
-              ...updatedImeis[imeiIdx], 
-              status: 'sold', 
-              repairTicketId: newTicket.id 
-            };
-          }
-        } else {
-          const prod = updatedProducts.find(p => 
-            p.id === part.productId || 
-            (p.sku && p.sku === part.productId) || 
-            p.name === part.name
-          );
-          if (prod && !prod.hasImei) {
-            prod.stock = Math.max(0, prod.stock - (part.quantity || 1));
-          }
-        }
-      });
-    }
-
-    // 3. Đồng bộ hóa tồn kho tổng các sản phẩm có IMEI
-    updatedProducts = syncProductsStockWithImeis(updatedProducts, updatedImeis);
-
-    return { updatedProducts, updatedImeis };
-  };
-
-  /**
-   * Xóa phiếu sửa chữa & Hoàn nguyên 100% tự động:
-   * - Hoàn trả tồn kho linh kiện và khôi phục IMEI đã sử dụng
-   * - Hủy công nợ liên quan tới phiếu sửa chữa
-   * - Thu hồi / hủy thẻ bảo hành sửa chữa
-   */
-  const handleDeleteRepairTicket = (repairId: string) => {
-    try {
-      const targetTicket = repairs.find(r => r.id === repairId);
-      if (!targetTicket) return;
-
-      // 1. Hoàn nguyên linh kiện và IMEI nếu phiếu đã từng hoàn thành/bàn giao
-      if (targetTicket.status === 'completed' || targetTicket.status === 'delivered') {
-        const { updatedProducts, updatedImeis } = applyRepairPartsInventoryChange(
-          targetTicket,
-          undefined, // newTicket = undefined nghĩa là hoàn nguyên toàn bộ về kho
-          products,
-          imeis
-        );
-        saveProducts(updatedProducts, updatedImeis);
-        saveImeis(updatedImeis);
-      }
-
-      // 2. Xóa / hoàn nguyên công nợ liên quan
-      const cleanTicketNum = targetTicket.ticketNumber.replace(/^REP-/, '');
-      const invId = `inv_repair_${targetTicket.id}`;
-      const invNum = `HD-REP-${cleanTicketNum}`;
-
-      const nextDebts = debts.filter(d => !(
-        (d.invoiceId && d.invoiceId === invId) ||
-        (d.invoiceNumber && d.invoiceNumber === invNum) ||
-        (d.note && (d.note.includes(targetTicket.ticketNumber) || d.note.includes(cleanTicketNum)))
-      ));
-      saveDebts(nextDebts);
-
-      // 3. Xóa các thẻ bảo hành dịch vụ liên quan
-      const nextWarranties = warranties.filter(w => !(
-        w.linkedRepairId === targetTicket.id ||
-        w.id === `warr_repaired_${targetTicket.id}` ||
-        w.serialNumber === `REP-${targetTicket.ticketNumber}` ||
-        (targetTicket.deviceSerial && w.serialNumber === targetTicket.deviceSerial && w.linkedRepairId === targetTicket.id) ||
-        (w.notes && (w.notes.includes(targetTicket.ticketNumber) || w.notes.includes(cleanTicketNum)))
-      ));
-      saveWarranties(nextWarranties);
-
-      // 4. Xóa phiếu khỏi danh sách
-      const nextRepairs = repairs.filter(r => r.id !== repairId);
-      saveRepairs(nextRepairs);
-
-      logActivity(
-        'repair',
-        'Xóa phiếu sửa chữa & Hoàn nguyên',
-        `Đã xóa phiếu sửa chữa #${targetTicket.ticketNumber} (${targetTicket.customerName}) - Toàn bộ tồn kho linh kiện, IMEI, công nợ và bảo hành đã được hoàn nguyên an toàn.`,
-        targetTicket.actualCost || targetTicket.estimatedCost,
-        'danger'
-      );
-    } catch (err) {
-      console.error('Lỗi khi xóa phiếu sửa chữa:', err);
-      alert('Đã xảy ra lỗi khi hoàn nguyên phiếu sửa chữa. Vui lòng kiểm tra lại!');
-    }
-  };
-
-  const handleDeleteWarranty = (id: string) => {
-    const targetWarr = warranties.find(w => w.id === id);
-    const nextWarranties = warranties.filter(w => w.id !== id);
-    saveWarranties(nextWarranties);
-    if (targetWarr) {
-      logActivity(
-        'sale',
-        'Xóa thẻ bảo hành',
-        `Admin ${currentUser?.fullName || ''} đã xóa thẻ bảo hành ${targetWarr.productName} (S/N: ${targetWarr.serialNumber})`,
-        0,
-        'danger'
-      );
-    }
-  };
-
-  const handleUpdateDebts = (updatedDebts: Debt[]) => {
-    const { cleanedDebts, cleanedInvoices, cleanedRepairs } = deduplicateAndSyncDebts(
-      updatedDebts,
-      invoices,
-      repairs
-    );
-
-    saveInvoices(cleanedInvoices);
-    saveRepairs(cleanedRepairs);
-    saveDebts(cleanedDebts);
-  };
-
-  const handleDeleteDebt = (debtId: string) => {
-    const targetDebt = debts.find(d => d.id === debtId);
-    if (!targetDebt) return;
-
-    const nextDebts = debts.filter(d => d.id !== debtId);
-    handleUpdateDebts(nextDebts);
-
-    logActivity(
-      'debt',
-      'Xóa bản ghi công nợ',
-      `Admin ${currentUser?.fullName || ''} đã xóa bản ghi công nợ #${targetDebt.invoiceNumber || targetDebt.id} - Khách: ${targetDebt.customerName}`,
-      targetDebt.remainingAmount,
-      'danger'
-    );
-  };
-
-  const handleAddRepair = (ticket: RepairTicket) => {
-    saveRepairs([...repairs, ticket]);
-    logActivity('repair', 'Tiếp nhận thiết bị sửa chữa mới', `Mã phiếu: #${ticket.ticketNumber} - Khách: ${ticket.customerName} (${ticket.customerPhone}) - Thiết bị: ${ticket.deviceName} - Lỗi: ${ticket.issueDescription}`, ticket.estimatedCost, 'info');
-  };
-
-  const handleUpdateRepairTicket = (updatedTicket: RepairTicket) => {
-    try {
-      const oldTicket = repairs.find(rep => rep.id === updatedTicket.id);
-
-      // Đồng bộ tồn kho linh kiện sửa chữa và IMEI theo trạng thái hoàn thành / bàn giao
-      const { updatedProducts, updatedImeis } = applyRepairPartsInventoryChange(
-        oldTicket,
-        updatedTicket,
-        products,
-        imeis
-      );
-      saveProducts(updatedProducts, updatedImeis);
-      saveImeis(updatedImeis);
-
-      const updated = repairs.map(rep => rep.id === updatedTicket.id ? updatedTicket : rep);
-      saveRepairs(updated);
-
-      // Sync linked debt if exists
-      const cleanTicketNum = updatedTicket.ticketNumber.replace(/^REP-/, '');
-      const invId = `inv_repair_${updatedTicket.id}`;
-      const invNum = `HD-REP-${cleanTicketNum}`;
-
-      const existingDebtIdx = debts.findIndex(d => 
-        (d.invoiceId && d.invoiceId === invId) ||
-        (d.invoiceNumber && d.invoiceNumber === invNum) ||
-        (d.note && (d.note.includes(updatedTicket.ticketNumber) || d.note.includes(cleanTicketNum)))
-      );
-
-      if (updatedTicket.debtAmount && updatedTicket.debtAmount > 0) {
-        if (existingDebtIdx > -1) {
-          const nextDebts = [...debts];
-          const existing = nextDebts[existingDebtIdx];
-          const totalPaid = (existing.payments || []).reduce((sum, p) => sum + p.amount, 0);
-          const newRemaining = Math.max(0, updatedTicket.debtAmount - totalPaid);
-
-          nextDebts[existingDebtIdx] = {
-            ...existing,
-            invoiceId: invId,
-            invoiceNumber: invNum,
-            customerId: updatedTicket.customerId,
-            customerName: updatedTicket.customerName,
-            customerPhone: updatedTicket.customerPhone,
-            amount: updatedTicket.debtAmount,
-            remainingAmount: newRemaining,
-            dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            status: newRemaining === 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending'),
-            note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`
-          };
-          saveDebts(nextDebts);
-        } else {
-          const newDebt: Debt = {
-            id: `debt_${Date.now()}`,
-            invoiceId: invId,
-            invoiceNumber: invNum,
-            customerId: updatedTicket.customerId,
-            customerName: updatedTicket.customerName,
-            customerPhone: updatedTicket.customerPhone,
-            amount: updatedTicket.debtAmount,
-            remainingAmount: updatedTicket.debtAmount,
-            dueDate: updatedTicket.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            status: 'pending',
-            createdAt: updatedTicket.deliveredAt ? new Date(updatedTicket.deliveredAt).toISOString() : new Date().toISOString(),
-            note: `Công nợ sửa chữa thiết bị: ${updatedTicket.deviceName} (#${updatedTicket.ticketNumber})`,
-            payments: []
-          };
-          saveDebts([...debts, newDebt]);
-        }
-      } else if (existingDebtIdx > -1) {
-        const existing = debts[existingDebtIdx];
-        if (!existing.payments || existing.payments.length === 0) {
-          const nextDebts = debts.filter((_, idx) => idx !== existingDebtIdx);
-          saveDebts(nextDebts);
-        }
-      }
-
-      if (updatedTicket.warrantyUntil) {
-        const startDateStr = updatedTicket.deliveredAt || updatedTicket.createdAt.slice(0, 10);
-        const endDateStr = updatedTicket.warrantyUntil;
-        const startDate = new Date(startDateStr);
-        const endDate = new Date(endDateStr);
-        const diffDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
-        let computedMonths = 3;
-        if (diffDays <= 4) computedMonths = 0.1;
-        else if (diffDays <= 8) computedMonths = 0.2;
-        else if (diffDays <= 35) computedMonths = 1;
-        else if (diffDays <= 65) computedMonths = 2;
-        else if (diffDays <= 100) computedMonths = 3;
-        else if (diffDays <= 200) computedMonths = 6;
-        else if (diffDays <= 390) computedMonths = 12;
-        else if (diffDays <= 750) computedMonths = 24;
-        else if (diffDays <= 1120) computedMonths = 36;
-        else computedMonths = Math.max(1, Math.round(diffDays / 30));
-
-        const existingIdx = warranties.findIndex(w => w.linkedRepairId === updatedTicket.id || w.serialNumber === (updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`));
-        if (existingIdx > -1) {
-          const nextWarrs = [...warranties];
-          nextWarrs[existingIdx] = {
-            ...nextWarrs[existingIdx],
-            customerName: updatedTicket.customerName,
-            customerPhone: updatedTicket.customerPhone,
-            purchaseDate: startDateStr,
-            warrantyMonths: computedMonths,
-            expiryDate: endDateStr,
-            notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`
-          };
-          saveWarranties(nextWarrs);
-        } else if (updatedTicket.status === 'delivered' || updatedTicket.status === 'completed') {
-          const newWarr: WarrantyCard = {
-            id: `warr_repaired_${updatedTicket.id}`,
-            serialNumber: updatedTicket.deviceSerial || `REP-${updatedTicket.ticketNumber}`,
-            productName: `Dịch vụ sửa máy: ${updatedTicket.deviceName}`,
-            customerName: updatedTicket.customerName,
-            customerPhone: updatedTicket.customerPhone,
-            purchaseDate: startDateStr,
-            warrantyMonths: computedMonths,
-            expiryDate: endDateStr,
-            status: 'active',
-            notes: `Bảo hành dịch vụ sửa chữa số ${updatedTicket.ticketNumber}. Giải pháp: ${updatedTicket.solution || 'Thay thế linh kiện'}`,
-            linkedRepairId: updatedTicket.id
-          };
-          saveWarranties([newWarr, ...warranties]);
-        }
-      }
-
-      logActivity('repair', 'Chỉnh sửa phiếu / hóa đơn sửa chữa', `Mã phiếu: #${updatedTicket.ticketNumber} - Khách: ${updatedTicket.customerName} - Thiết bị: ${updatedTicket.deviceName}`, updatedTicket.actualCost || updatedTicket.estimatedCost, 'info');
-    } catch (err) {
-      console.error('Lỗi khi cập nhật phiếu sửa chữa:', err);
-      alert('Đã xảy ra sự cố khi cập nhật phiếu sửa chữa.');
-    }
-  };
-
-  // Advanced repair transitions
-  const handleUpdateRepairStatus = (
-    id: string, 
-    status: RepairStatus, 
-    finalDetails?: { 
-      solution?: string; 
-      actualCost?: number; 
-      warrantyUntil?: string; 
-      deliveredAt?: string; 
-      note?: string;
-      usedParts?: { productId: string; name: string; quantity: number; price: number; warrantyMonths?: number; imei?: string }[];
-      debtAmount?: number;
-      debtDueDate?: string;
-    }
-  ) => {
-    try {
-      let debtToSave: Debt | null = null;
-      let targetTicket: RepairTicket | undefined;
-
-      const targetIndex = repairs.findIndex(r => r.id === id);
-      if (targetIndex === -1) return;
-      targetTicket = repairs[targetIndex];
-
-      const payload: RepairTicket = {
-        ...targetTicket,
-        status,
-        updatedAt: new Date().toISOString()
-      };
-
-      if (finalDetails) {
-        if (finalDetails.solution !== undefined) payload.solution = finalDetails.solution;
-        if (finalDetails.actualCost !== undefined) payload.actualCost = finalDetails.actualCost;
-        if (finalDetails.warrantyUntil !== undefined) payload.warrantyUntil = finalDetails.warrantyUntil;
-        if (finalDetails.deliveredAt !== undefined) payload.deliveredAt = finalDetails.deliveredAt;
-        if (finalDetails.note !== undefined) payload.note = finalDetails.note;
-        if (finalDetails.usedParts !== undefined) payload.usedParts = finalDetails.usedParts;
-        if (finalDetails.debtAmount !== undefined) payload.debtAmount = finalDetails.debtAmount;
-        if (finalDetails.debtDueDate !== undefined) payload.debtDueDate = finalDetails.debtDueDate;
-      }
-
-      if (status === 'delivered' && !payload.deliveredAt) {
-        payload.deliveredAt = new Date().toISOString().slice(0, 10);
-      }
-
-      // Áp dụng đồng bộ tồn kho linh kiện sửa chữa và trạng thái IMEI
-      const { updatedProducts, updatedImeis } = applyRepairPartsInventoryChange(
-        targetTicket,
-        payload,
-        products,
-        imeis
-      );
-      saveProducts(updatedProducts, updatedImeis);
-      saveImeis(updatedImeis);
-
-      const nextRepairs = [...repairs];
-      nextRepairs[targetIndex] = payload;
-      saveRepairs(nextRepairs);
-
-      if (status === 'delivered' && finalDetails?.debtAmount && finalDetails.debtAmount > 0) {
-        const cleanTicketNum = targetTicket.ticketNumber.replace(/^REP-/, '');
-        const invId = `inv_repair_${targetTicket.id}`;
-        const invNum = `HD-REP-${cleanTicketNum}`;
-        debtToSave = {
-          id: `debt_${Date.now()}`,
-          invoiceId: invId,
-          invoiceNumber: invNum,
-          customerId: targetTicket.customerId,
-          customerName: targetTicket.customerName,
-          customerPhone: targetTicket.customerPhone,
-          amount: finalDetails.actualCost || targetTicket.estimatedCost,
-          remainingAmount: finalDetails.debtAmount,
-          dueDate: finalDetails.debtDueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-          status: finalDetails.debtAmount === (finalDetails.actualCost || targetTicket.estimatedCost) ? 'pending' : 'partial',
-          createdAt: finalDetails.deliveredAt ? new Date(finalDetails.deliveredAt).toISOString() : new Date().toISOString(),
-          note: `Công nợ sửa chữa thiết bị: ${targetTicket.deviceName} (#${targetTicket.ticketNumber})`
-        };
-      } else if (status === 'checking' || status === 'repairing') {
-        const cleanTicketNum = targetTicket.ticketNumber.replace(/^REP-/, '');
-        const invId = `inv_repair_${targetTicket.id}`;
-        const invNum = `HD-REP-${cleanTicketNum}`;
-        const nextDebts = debts.filter(d => !(
-          (d.invoiceId && d.invoiceId === invId) ||
-          (d.invoiceNumber && d.invoiceNumber === invNum) ||
-          (d.note && (d.note.includes(targetTicket!.ticketNumber) || d.note.includes(cleanTicketNum)))
-        ));
-        saveDebts(nextDebts);
-      }
-
-      // If transition to 'delivered' occurs, also register or update a service repair warranty card
-      if (status === 'delivered' && payload.warrantyUntil) {
-        let maxPartWarranty = 0;
-        if (payload.usedParts && payload.usedParts.length > 0) {
-          payload.usedParts.forEach(pt => {
-            const prod = updatedProducts.find(p => p.id === pt.productId || p.sku === pt.productId || p.name === pt.name);
-            const w = pt.warrantyMonths ?? prod?.warrantyMonths ?? 0;
-            if (w > maxPartWarranty) maxPartWarranty = w;
-          });
-        }
-
-        const startDateStr = payload.deliveredAt || new Date().toISOString().slice(0, 10);
-        let finalExpiryDateStr = payload.warrantyUntil;
-
-        if (maxPartWarranty > 0 && !payload.warrantyUntil) {
-          const computedExpiryWithParts = computeExpiryDate(startDateStr, maxPartWarranty);
-          finalExpiryDateStr = computedExpiryWithParts;
-          payload.warrantyUntil = computedExpiryWithParts;
-        }
-
-        const startDate = new Date(startDateStr);
-        const expiryDate = new Date(finalExpiryDateStr);
-        const diffDays = Math.round((expiryDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
-        let computedMonths = maxPartWarranty || 3;
-        if (diffDays <= 4) computedMonths = 0.1;
-        else if (diffDays <= 8) computedMonths = 0.2;
-        else if (diffDays <= 35) computedMonths = 1;
-        else if (diffDays <= 65) computedMonths = 2;
-        else if (diffDays <= 100) computedMonths = 3;
-        else if (diffDays <= 200) computedMonths = 6;
-        else if (diffDays <= 390) computedMonths = 12;
-        else if (diffDays <= 750) computedMonths = 24;
-        else if (diffDays <= 1120) computedMonths = 36;
-        else computedMonths = Math.max(1, Math.round(diffDays / 30));
-
-        if (maxPartWarranty > 0 && computedMonths < maxPartWarranty) {
-          computedMonths = maxPartWarranty;
-        }
-
-        const repairWarrantyCard: WarrantyCard = {
-          id: `warr_repaired_${targetTicket.id}`,
-          serialNumber: targetTicket.deviceSerial || `REP-${targetTicket.ticketNumber}`,
-          productName: `Dịch vụ sửa máy: ${targetTicket.deviceName}`,
-          customerName: targetTicket.customerName,
-          customerPhone: targetTicket.customerPhone,
-          purchaseDate: startDateStr,
-          warrantyMonths: computedMonths,
-          expiryDate: finalExpiryDateStr,
-          status: 'active',
-          notes: `Bảo hành dịch vụ sửa chữa số ${targetTicket.ticketNumber}. Giải pháp: ${payload.solution || 'Thay thế linh kiện'}`,
-          linkedRepairId: targetTicket.id
-        };
-        
-        // Upsert into warranties list
-        setTimeout(() => {
-          setWarranties(prevWarr => {
-            const existingIdx = prevWarr.findIndex(w => 
-              w.linkedRepairId === targetTicket!.id || 
-              (targetTicket!.deviceSerial && w.serialNumber === targetTicket!.deviceSerial) ||
-              w.serialNumber === `REP-${targetTicket!.ticketNumber}` ||
-              (w.notes && w.notes.includes(targetTicket!.ticketNumber))
-            );
-            let nextWarrs: WarrantyCard[];
-            if (existingIdx >= 0) {
-              nextWarrs = [...prevWarr];
-              nextWarrs[existingIdx] = {
-                ...nextWarrs[existingIdx],
-                ...repairWarrantyCard,
-                id: nextWarrs[existingIdx].id
-              };
-            } else {
-              nextWarrs = [repairWarrantyCard, ...prevWarr];
-            }
-            saveWarranties(nextWarrs);
-            return nextWarrs;
-          });
-        }, 10);
-      } else if (status === 'checking' || status === 'repairing') {
-        const nextWarrs = warranties.filter(w => !(
-          w.linkedRepairId === targetTicket!.id ||
-          w.id === `warr_repaired_${targetTicket!.id}` ||
-          w.serialNumber === `REP-${targetTicket!.ticketNumber}` ||
-          (w.notes && w.notes.includes(targetTicket!.ticketNumber))
-        ));
-        saveWarranties(nextWarrs);
-      }
-
-      const statusMap: Record<RepairStatus, string> = {
-        checking: 'Đang kiểm tra / báo giá',
-        repairing: 'Đang tiến hành sửa chữa',
-        completed: 'Đã sửa xong (chờ nhận)',
-        delivered: 'Đã hoàn thành & Bàn giao máy'
-      };
-
-      logActivity('repair', 'Cập nhật trạng thái phiếu sửa chữa', `Mã phiếu: #${targetTicket?.ticketNumber || id} - Khách: ${targetTicket?.customerName || 'N/A'} -> Trạng thái: ${statusMap[status] || status}`, finalDetails?.actualCost, 'info');
-
-      if (debtToSave) {
-        setTimeout(() => {
-          setDebts(prevDebts => {
-            const cleanTicketNum = targetTicket?.ticketNumber?.replace(/^REP-/, '') || '';
-            const existingIdx = prevDebts.findIndex(d => 
-              (debtToSave?.invoiceId && d.invoiceId === debtToSave.invoiceId) ||
-              (debtToSave?.invoiceNumber && d.invoiceNumber === debtToSave.invoiceNumber) ||
-              (cleanTicketNum && d.note && d.note.includes(cleanTicketNum))
-            );
-            let nextDebts: Debt[];
-            if (existingIdx > -1) {
-              nextDebts = [...prevDebts];
-              nextDebts[existingIdx] = {
-                ...nextDebts[existingIdx],
-                ...debtToSave,
-                id: nextDebts[existingIdx].id
-              };
-            } else {
-              nextDebts = [debtToSave!, ...prevDebts];
-            }
-            saveDebts(nextDebts);
-            return nextDebts;
-          });
-        }, 50);
-      }
-    } catch (err) {
-      console.error('Lỗi khi cập nhật trạng thái phiếu sửa chữa:', err);
-      alert('Đã xảy ra sự cố khi cập nhật trạng thái phiếu.');
-    }
-  };
-
-  const handleAddWarranty = (card: WarrantyCard) => {
-    saveWarranties([...warranties, card]);
-  };
-
-  const handleAddCustomer = (customer: Customer) => {
-    saveCustomers([...customers, customer]);
-    logActivity('customer', 'Thêm khách hàng mới', `Tên: ${customer.name} - SĐT: ${customer.phone}`, undefined, 'info');
-  };
-
-  const handleEditCustomer = (customer: Customer) => {
-    saveCustomers(customers.map(c => c.id === customer.id ? customer : c));
-    logActivity('customer', 'Cập nhật hồ sơ khách hàng', `Tên: ${customer.name} - SĐT: ${customer.phone}`, undefined, 'info');
-  };
-
-  const handleDeleteCustomer = (id: string) => {
-    const targetCust = customers.find(c => c.id === id);
-    const updated = customers.filter(c => c.id !== id);
-    saveCustomers(updated);
-    logActivity('customer', 'Xóa hồ sơ khách hàng', `Đã xóa khách hàng: ${targetCust ? targetCust.name : id} (SĐT: ${targetCust?.phone || 'N/A'})`, undefined, 'danger');
-  };
-
   return (
-    <div className="min-h-screen md:h-screen md:max-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col md:flex-row antialiased p-4 md:p-6 gap-6 md:overflow-hidden">
+    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 flex flex-col md:flex-row antialiased selection:bg-indigo-100 selection:text-indigo-700">
       
-      {/* 1. MOBILE BRAND HEADER CARD (Bento style, only visible on mobile) */}
-      <div className="flex md:hidden items-center justify-between bg-slate-900 text-white rounded-2xl border border-slate-850 p-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0">
-            <TPLogo className="w-8 h-8 shrink-0" />
-          </div>
-          <div>
-            <h2 className="font-extrabold text-sm tracking-tight leading-none uppercase text-white">THỊNH PHÁT</h2>
-            <p className="text-[9px] text-slate-400 font-bold mt-1.5 uppercase tracking-widest">COMPUTER SYSTEM</p>
-          </div>
+      {/* ORIGINAL TOP HEADER */}
+      <header className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40 md:hidden">
+        <div className="flex items-center gap-2">
+          <TPLogo className="w-7 h-7 text-indigo-400" />
+          <span className="font-extrabold text-sm tracking-tight">THỊNH PHÁT COMPUTER</span>
         </div>
-        <button
-          id="mobile-drawer-toggle-btn"
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="p-2 hover:bg-slate-800 rounded-xl transition text-slate-400 hover:text-white cursor-pointer"
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-1.5 rounded-lg bg-slate-800 text-slate-200"
         >
-          <Menu className="w-5 h-5" />
+          {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
-      </div>
+      </header>
 
-      {/* MOBILE DRAWER OVERLAY (Animated navigation drawer) */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <div className="fixed inset-0 z-50 md:hidden">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-xs"
-            />
-            {/* Slide-out Panel */}
-            <motion.div
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-              className="absolute top-0 bottom-0 left-0 w-80 max-w-[90%] bg-slate-900 border-r border-slate-850 p-5 flex flex-col justify-between shadow-2xl"
-            >
-              <div>
-                <div className="flex items-center justify-between pb-5 border-b border-slate-850 mb-6">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-1.5 bg-white rounded-xl shadow-sm flex items-center justify-center shrink-0">
-                      <TPLogo className="w-7 h-7 shrink-0" />
-                    </div>
-                    <div>
-                      <h2 className="font-extrabold text-xs tracking-wider leading-none uppercase text-white">THỊNH PHÁT</h2>
-                      <p className="text-[8px] text-slate-400 font-bold mt-1 uppercase tracking-widest">COMPUTER SYSTEM</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="p-1.5 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="space-y-1.5">
-                  {[
-                    { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
-                    { id: 'owner', label: 'Bảng Chủ Shop 👑', icon: Crown },
-                    { id: 'reports', label: 'Báo Cáo & Lợi Nhuận', icon: BarChart3 },
-                    { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
-                    { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
-                    { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
-                    { id: 'warranties', label: 'Tra Cứu Bảo Hành', icon: ShieldCheck },
-                    { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
-                    { id: 'debts', label: 'Công Nợ', icon: ReceiptText },
-                    { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
-                    { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
-                    { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-                  ].filter(tab => !['accounts', 'printSettings', 'owner', 'reports'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
-                    const Icon = tab.icon;
-                    const isActive = activeTab === tab.id;
-                    return (
-                      <button 
-                        id={`mobile-nav-tab-${tab.id}`}
-                        key={tab.id}
-                        onClick={() => {
-                          setActiveTab(tab.id);
-                          setIsMobileMenuOpen(false);
-                        }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[11px] font-bold tracking-wide transition uppercase cursor-pointer ${
-                          isActive 
-                            ? 'bg-blue-600 text-white shadow-md border border-blue-500' 
-                            : 'text-slate-400 hover:bg-slate-850 hover:text-slate-100'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 shrink-0" />
-                        {tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* User session status and Logout */}
-              <div className="border-t border-slate-850 pt-4 space-y-4">
-                <div className="bg-slate-850 p-3 rounded-2xl flex items-center justify-between gap-2 border border-slate-800">
-                  <div className="min-w-0">
-                    <p className="font-extrabold text-[11px] text-slate-100 truncate">{currentUser?.fullName}</p>
-                    <p className="text-[9px] font-extrabold mt-0.5 text-blue-400 uppercase tracking-widest leading-none">
-                      {currentUser?.role === 'admin' && 'Chủ cửa hàng'}
-                      {currentUser?.role === 'sales' && 'Bán Hàng'}
-                      {currentUser?.role === 'technician' && 'Kỹ Thuật'}
-                    </p>
-                  </div>
-                  
-                  <button 
-                    id="mobile-sys-log-logout"
-                    onClick={() => {
-                      setIsMobileMenuOpen(false);
-                      handleLogout();
-                    }}
-                    title="Đăng xuất"
-                    className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg transition cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                
-                <div className="text-center px-1">
-                  <p className="text-[9px] text-slate-600 font-extrabold uppercase tracking-wider">THỊNH PHÁT COMPUTER v1.2</p>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* 2. PRIMARY SYSTEM DESKTOP SIDEBAR RAIL (Only visible on screens md and up) */}
-      <nav className="hidden md:flex w-full md:w-64 h-full bg-slate-900 text-white shrink-0 rounded-[2rem] border-2 border-slate-850 p-2 flex-col justify-between bento-shadow overflow-hidden">
-        <div className="p-4 flex flex-col h-full min-h-0 overflow-hidden">
-          <div className="flex items-center gap-3 mb-6 px-2 py-1 shrink-0">
-            <div className="p-2 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center shrink-0">
-              <TPLogo className="w-8 h-8 shrink-0" />
-            </div>
+      {/* ORIGINAL DARK SLATE SIDEBAR (100% ORIGINAL DESIGN) */}
+      <nav className={`w-full md:w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 ${isMobileMenuOpen ? 'block' : 'hidden md:flex'}`}>
+        <div>
+          {/* Logo & Store Info */}
+          <div className="p-4 border-b border-slate-800 flex items-center gap-3">
+            <TPLogo className="w-9 h-9 text-indigo-500 shrink-0" />
             <div>
-              <h2 className="font-extrabold text-[13px] tracking-wider leading-none uppercase text-white">THỊNH PHÁT</h2>
-              <p className="text-[8px] text-slate-400 font-bold mt-1.5 uppercase tracking-widest">COMPUTER SYSTEM</p>
+              <h2 className="font-black text-white text-sm tracking-tight">{printSettings.storeName}</h2>
+              <p className="text-[10px] text-slate-400 font-medium truncate max-w-[150px]">{printSettings.storeSlogan}</p>
             </div>
           </div>
- 
-          {/* Navigation Button Links */}
-          <div className="space-y-1.5 flex-1 overflow-y-auto pr-1">
-            {[
-              { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
-              { id: 'owner', label: 'Bảng Chủ Shop 👑', icon: Crown },
-              { id: 'reports', label: 'Báo Cáo & Lợi Nhuận', icon: BarChart3 },
-              { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
-              { id: 'buildpc', label: 'Build Cấu Hình', icon: Cpu },
-              { id: 'repairs', label: 'Nhận Sửa Chữa', icon: Wrench },
-              { id: 'warranties', label: 'Tra Cứu Bảo Hành', icon: ShieldCheck },
-              { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
-              { id: 'debts', label: 'Công Nợ', icon: ReceiptText },
-              { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Factory },
-              { id: 'printSettings', label: 'Cấu Hình In & QR', icon: Printer },
-              { id: 'accounts', label: 'Nhân Viên & Quyền', icon: UserCog },
-            ].filter(tab => !['accounts', 'printSettings', 'owner', 'reports'].includes(tab.id) || currentUser?.role === 'admin').map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button 
-                  id={`nav-tab-${tab.id}`}
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[11px] font-bold tracking-wide transition uppercase cursor-pointer ${
-                    isActive 
-                      ? 'bg-blue-600 text-white shadow-md border border-blue-500' 
-                      : 'text-slate-400 hover:bg-slate-850 hover:text-slate-100'
-                  }`}
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  {tab.label}
-                </button>
-              );
-            })}
+
+          {/* Sidebar Menu Items */}
+          <div className="p-2 space-y-1">
+            {currentUser.role === 'admin' && (
+              <button
+                onClick={() => { setActiveTab('owner'); setIsMobileMenuOpen(false); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                  activeTab === 'owner' ? 'bg-amber-500 text-slate-950 font-black shadow-md' : 'text-amber-400 hover:bg-slate-800'
+                }`}
+              >
+                <Crown className="w-4 h-4 text-amber-400" />
+                <span>Bảng Chủ Shop 👑</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span>Bảng Điều Khiển</span>
+            </button>
+
+            {currentUser.role === 'admin' && (
+              <button
+                onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                  activeTab === 'reports' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>Báo Cáo Doanh Thu</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => { setActiveTab('sales'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'sales' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>Quản Lý Bán Hàng & Kho</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('buildpc'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'buildpc' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Cpu className="w-4 h-4" />
+              <span>Tự Build Cấu Hình PC</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('repairs'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'repairs' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Wrench className="w-4 h-4" />
+              <span>Tiếp Nhận Sửa Chữa</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('warranties'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'warranties' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Bảo Hành Điện Tử</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('suppliers'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'suppliers' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Nhà Cung Cấp</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('debts'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'debts' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <ReceiptText className="w-4 h-4" />
+              <span>Quản Lý Công Nợ</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('customers'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'customers' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Quản Lý Khách Hàng</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('printSettings'); setIsMobileMenuOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                activeTab === 'printSettings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Printer className="w-4 h-4" />
+              <span>Cấu Hình Mẫu In</span>
+            </button>
+
+            {currentUser.role === 'admin' && (
+              <button
+                onClick={() => { setActiveTab('accounts'); setIsMobileMenuOpen(false); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
+                  activeTab === 'accounts' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                <UserCog className="w-4 h-4" />
+                <span>Quản Lý Nhân Viên</span>
+              </button>
+            )}
           </div>
         </div>
- 
-        {/* Footer Current User Session with Log Out */}
-        <div className="p-3 border-t border-slate-850 space-y-2 shrink-0">
-          <div className="bg-slate-850 p-2.5 rounded-2xl flex items-center justify-between gap-2 border border-slate-800">
-            <div className="min-w-0">
-              <p className="font-extrabold text-[11px] text-slate-100 truncate">{currentUser?.fullName}</p>
-              <p className="text-[9px] font-extrabold mt-0.5 text-blue-400 uppercase tracking-widest leading-none">
-                {currentUser?.role === 'admin' && 'Chủ cửa hàng'}
-                {currentUser?.role === 'sales' && 'Bán Hàng'}
-                {currentUser?.role === 'technician' && 'Kỹ Thuật'}
-              </p>
+
+        {/* User Info & Logout Footer */}
+        <div className="p-3 border-t border-slate-800 space-y-2">
+          <div className="flex items-center gap-2 bg-slate-800/80 p-2 rounded-xl">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white font-black flex items-center justify-center text-xs shrink-0">
+              {currentUser.fullName.charAt(0).toUpperCase()}
             </div>
-            
-            <button 
-              id="sys-logout-btn"
-              onClick={handleLogout}
-              title="Đăng xuất"
-              className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg transition cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-slate-100 truncate">{currentUser.fullName}</p>
+              <p className="text-[10px] text-slate-400 font-mono capitalize">{currentUser.role}</p>
+            </div>
           </div>
-          
-          <div className="text-center md:text-left px-1">
-            <p className="text-[9px] text-slate-600 font-extrabold uppercase tracking-wider">THỊNH PHÁT COMPUTER v1.2</p>
-          </div>
+
+          <button
+            onClick={handleLogout}
+            className="w-full text-left px-3 py-2 rounded-xl font-bold text-xs text-rose-400 hover:bg-rose-950/40 transition cursor-pointer flex items-center gap-2"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Đăng Xuất</span>
+          </button>
         </div>
       </nav>
- 
-      {/* 3. PRIMARY MAIN CONTENT STAGE */}
-      <main className="flex-1 h-full min-h-0 overflow-hidden px-2 py-3 md:p-2 flex flex-col">
 
+      {/* ORIGINAL PRIMARY MAIN CONTENT STAGE */}
+      <main className="flex-1 h-full min-h-0 overflow-hidden px-3 py-3 md:p-4 flex flex-col">
         
-        {/* Workspace dynamic title bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3 border-b border-slate-100 pb-3 shrink-0">
+        {/* Workspace Dynamic Title Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3 border-b border-slate-200 pb-3 shrink-0">
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
               {activeTab === 'dashboard' && 'Bảng Điều Khiển Kinh Doanh'}
@@ -2429,7 +638,7 @@ export default function App() {
             <p className="text-xs text-slate-500 mt-0.5">
               {activeTab === 'dashboard' && 'Báo cáo nhanh doanh số bán hàng, tình trạng sửa chữa thiết bị, dịch vụ bảo hành.'}
               {activeTab === 'owner' && 'Theo dõi realtime đơn hàng đã bán trong ngày, thông báo doanh thu, lợi nhuận & hiệu suất nhân viên.'}
-              {activeTab === 'reports' && 'Phân tích doanh thu, lợi nhuận gộp, lịch sử bán hàng và biến động công nợ theo tháng hoặc khoảng thời gian tùy chọn.'}
+              {activeTab === 'reports' && 'Phân tích doanh thu, lợi nhuận gộp, lịch sử bán hàng và biến động công nợ theo tháng.'}
               {activeTab === 'sales' && 'Thiết lập giỏ nhận thanh toán hóa đơn nhanh, kích hoạt tự động thẻ bảo hành, điều chỉnh số tồn kho.'}
               {activeTab === 'buildpc' && 'Phối ráp CPU, RAM, ổ cứng, giá tùy chỉnh thực tế, bảo hành riêng lẻ và in báo giá.'}
               {activeTab === 'repairs' && 'Ghi chép tiếp quản máy hỏng kỹ thuật, tra cứu tự động nếu có bảo hành, bàn giao máy lưu kho.'}
@@ -2437,139 +646,39 @@ export default function App() {
               {activeTab === 'customers' && 'Kiểm soát thông tin liên hệ, tra cứu lịch sử mua hàng phối hợp tất toán sửa chữa khách hàng cũ.'}
               {activeTab === 'debts' && 'Theo dõi danh sách công nợ khách hàng, kỳ hạn thanh toán và trạng thái tất toán các hóa đơn còn thiếu.'}
               {activeTab === 'suppliers' && 'Quản lý thông tin nhà cung cấp sản phẩm, tra cứu nhanh nguồn gốc nhập hàng để bảo hành dễ dàng.'}
-              {activeTab === 'printSettings' && 'Điều chỉnh khuôn khổ in ấn A4/K80/K57, màu thương hiệu nổi bật, khẩu hiệu cửa hàng và tích hợp VietQR.'}
+              {activeTab === 'printSettings' && 'Điều chỉnh khuôn khổ in ấn A4/K80/K57, màu thương hiệu nổi bật và tích hợp VietQR.'}
               {activeTab === 'accounts' && 'Kiểm soát danh sách nhân sự bán hàng, kỹ thuật viên hoạt động tại cửa hàng, phân bổ quyền hạn.'}
             </p>
           </div>
 
-          {/* Centralized LAN Server Sync Controller & Owner Notification Bell */}
-          <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-center">
-            {currentUser?.role === 'admin' && (
-              <div className="relative">
-                <button
-                  id="btn-owner-notification-bell"
-                  onClick={() => setShowNotifDropdown(!showNotifDropdown)}
-                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition cursor-pointer flex items-center gap-2 border border-slate-700 shadow-2xs relative"
-                  title="Thông báo thao tác nhân viên realtime"
-                >
-                  <div className="relative">
-                    <Bell className="w-4 h-4 text-amber-400" />
-                    {activities.filter(a => !a.readByOwner).length > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping" />
-                    )}
-                  </div>
-                  <span className="hidden sm:inline text-xs font-bold text-slate-100">Thông Báo Staff</span>
-                  {activities.filter(a => !a.readByOwner).length > 0 && (
-                    <span className="bg-rose-500 text-white text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
-                      {activities.filter(a => !a.readByOwner).length > 99 ? '99+' : activities.filter(a => !a.readByOwner).length}
-                    </span>
-                  )}
-                </button>
-
-                {/* Floating Realtime Activity Notification Dropdown */}
-                <AnimatePresence>
-                  {showNotifDropdown && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border-2 border-slate-200 z-50 overflow-hidden"
-                    >
-                      <div className="p-3.5 bg-slate-900 text-white flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <Bell className="w-4 h-4 text-amber-400" />
-                          <h4 className="font-extrabold text-xs uppercase tracking-wider">Thao Tác Nhân Viên</h4>
-                        </div>
-                        {activities.filter(a => !a.readByOwner).length > 0 && (
-                          <button
-                            onClick={() => handleMarkLogRead()}
-                            className="text-[10px] text-amber-400 hover:underline font-bold cursor-pointer"
-                          >
-                            Đánh dấu đã đọc ({activities.filter(a => !a.readByOwner).length})
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1">
-                        {activities.length === 0 ? (
-                          <div className="p-6 text-center text-xs text-slate-400 font-medium">
-                            Chưa có thao tác mới nào từ nhân viên
-                          </div>
-                        ) : (
-                          activities.slice(0, 10).map(act => (
-                            <div
-                              key={act.id}
-                              onClick={() => handleMarkLogRead(act.id)}
-                              className={`p-3 rounded-xl transition cursor-pointer text-xs space-y-1 ${
-                                !act.readByOwner ? 'bg-amber-50/80 border-l-4 border-amber-500' : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="flex justify-between items-start gap-2">
-                                <span className="font-black text-slate-900 truncate">{act.userName}</span>
-                                <span className="text-[10px] text-slate-400 font-medium shrink-0">
-                                  {new Date(act.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                              </div>
-                              <p className="font-bold text-slate-800">{act.title}</p>
-                              <p className="text-[11px] text-slate-500 leading-snug truncate">{act.details}</p>
-                            </div>
-                          ))
-                        )}
-                      </div>
-
-                      <div className="p-2.5 bg-slate-50 border-t border-slate-100 text-center">
-                        <button
-                          onClick={() => {
-                            setActiveTab('owner');
-                            setShowNotifDropdown(false);
-                          }}
-                          className="text-xs font-bold text-indigo-600 hover:underline w-full cursor-pointer"
-                        >
-                          Xem toàn bộ nhật ký tại Bảng Chủ Shop 👑
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-xs">
-              <span className="relative flex h-2 w-2">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dbLoading ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${dbLoading ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
-              </span>
-              <div className="text-left font-sans mr-2">
-                <p className="text-[10px] font-extrabold text-slate-700 leading-none">MÁY CHỦ TRUNG TÂM</p>
-                <p className="text-[8px] font-bold text-slate-400 mt-0.5 leading-none">LAN Database Connected</p>
-              </div>
-              <button
-                onClick={() => loadCentralData()}
-                disabled={isSyncing}
-                className={`p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition text-[10px] font-extrabold flex items-center gap-1 cursor-pointer select-none bg-slate-50 ${isSyncing ? 'opacity-50 pointer-events-none' : ''}`}
-              >
-                <svg 
-                  className={`w-3.5 h-3.5 text-slate-600 ${isSyncing ? 'animate-spin' : ''}`} 
-                  fill="none" 
-                  stroke="currentColor" 
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6H16" />
-                </svg>
-                {isSyncing ? 'Đồng bộ...' : 'Đồng bộ'}
-              </button>
+          {/* Connection Indicator */}
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs self-start sm:self-center">
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dbLoading ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${dbLoading ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+            </span>
+            <div className="text-left">
+              <p className="text-[10px] font-extrabold text-slate-700 leading-none">MÁY CHỦ TRUNG TÂM</p>
+              <p className="text-[8px] font-bold text-slate-400 mt-0.5 leading-none">JsonDatabaseEngine Connected</p>
             </div>
+            <button
+              onClick={() => loadCentralData()}
+              disabled={isSyncing}
+              className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 transition text-[10px] font-extrabold cursor-pointer"
+            >
+              {isSyncing ? 'Đồng bộ...' : 'Đồng bộ'}
+            </button>
           </div>
         </div>
 
-        {/* Active Route Workspace Switch with motion load-in effects */}
+        {/* ORIGINAL STAGE RENDERING FOR ALL ORIGINAL COMPONENTS */}
         <AnimatePresence mode="wait">
           <motion.div 
             key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.18 }}
+            exit={{ opacity: 0, y: -5 }}
+            transition={{ duration: 0.15 }}
             className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col"
           >
             {activeTab === 'dashboard' && (
@@ -2585,7 +694,7 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'owner' && currentUser?.role === 'admin' && (
+            {activeTab === 'owner' && currentUser.role === 'admin' && (
               <OwnerDashboard 
                 products={products}
                 invoices={invoices}
@@ -2594,13 +703,13 @@ export default function App() {
                 users={users}
                 imeis={imeis}
                 activities={activities}
-                onMarkLogRead={handleMarkLogRead}
-                onClearLogs={handleClearLogs}
+                onMarkLogRead={() => {}}
+                onClearLogs={() => {}}
                 onNavigate={setActiveTab}
               />
             )}
 
-            {activeTab === 'reports' && (
+            {activeTab === 'reports' && currentUser.role === 'admin' && (
               <ReportManager 
                 products={products}
                 invoices={invoices}
@@ -2621,21 +730,22 @@ export default function App() {
                 invoices={invoices}
                 categories={categories}
                 users={users}
-                currentUser={currentUser!}
+                currentUser={currentUser}
                 printSettings={printSettings}
                 suppliers={suppliers}
                 onAddProduct={handleAddProduct}
                 onUpdateProduct={handleUpdateProduct}
                 onDeleteProduct={handleDeleteProduct}
-                onUpdateProductStock={handleUpdateProductStock}
+                onUpdateProductStock={(id, newStock) => {
+                  const prod = products.find(p => p.id === id);
+                  if (prod) handleUpdateProduct({ ...prod, stock: newStock });
+                }}
                 onAddInvoice={handleAddInvoice}
-                onUpdateInvoice={handleUpdateInvoice}
-                onDeleteInvoice={handleDeleteInvoice}
                 onAddCustomer={handleAddCustomer}
                 onAddCategory={handleAddCategory}
                 onUpdateCategory={handleUpdateCategory}
                 onDeleteCategory={handleDeleteCategory}
-                onUpdateImeis={saveImeis}
+                onUpdateImeis={handleUpdateImeis}
               />
             )}
 
@@ -2644,13 +754,15 @@ export default function App() {
                 products={products}
                 imeis={imeis}
                 customers={customers}
-                currentUser={currentUser!}
+                currentUser={currentUser}
                 printSettings={printSettings}
                 onAddInvoice={handleAddInvoice}
                 onAddCustomer={handleAddCustomer}
-                onUpdateProductStock={handleUpdateProductStock}
-                onUpdateImeis={saveImeis}
-                onUpdatePrintSettings={setPrintSettings}
+                onUpdateProductStock={(id, newStock) => {
+                  const prod = products.find(p => p.id === id);
+                  if (prod) handleUpdateProduct({ ...prod, stock: newStock });
+                }}
+                onUpdateImeis={handleUpdateImeis}
               />
             )}
 
@@ -2660,17 +772,24 @@ export default function App() {
                 customers={customers}
                 warranties={warranties}
                 users={users}
-                currentUser={currentUser!}
+                currentUser={currentUser}
                 products={products}
                 imeis={imeis}
                 printSettings={printSettings}
-                onUpdateImeis={saveImeis}
+                onUpdateImeis={handleUpdateImeis}
                 onAddRepair={handleAddRepair}
-                onUpdateRepair={handleUpdateRepairTicket}
-                onDeleteRepair={handleDeleteRepairTicket}
+                onUpdateRepair={handleUpdateRepair}
+                onDeleteRepair={id => {
+                  const updated = repairs.filter(r => r.id !== id);
+                  setRepairs(updated);
+                  saveCollection('repairs', updated);
+                }}
                 onUpdateRepairStatus={handleUpdateRepairStatus}
                 onAddCustomer={handleAddCustomer}
-                onUpdateProductStock={handleUpdateProductStock}
+                onUpdateProductStock={(id, newStock) => {
+                  const prod = products.find(p => p.id === id);
+                  if (prod) handleUpdateProduct({ ...prod, stock: newStock });
+                }}
               />
             )}
 
@@ -2679,10 +798,25 @@ export default function App() {
                 warranties={warranties}
                 repairs={repairs}
                 users={users}
-                currentUser={currentUser!}
-                onAddWarranty={handleAddWarranty}
-                onDeleteWarranty={handleDeleteWarranty}
+                currentUser={currentUser}
+                onAddWarranty={card => {
+                  const updated = [card, ...warranties];
+                  setWarranties(updated);
+                  saveCollection('warranties', updated);
+                }}
                 invoices={invoices}
+                products={products}
+              />
+            )}
+
+            {activeTab === 'debts' && (
+              <DebtManager 
+                debts={debts}
+                onUpdateDebts={handleUpdateDebts}
+                invoices={invoices}
+                customers={customers}
+                printSettings={printSettings}
+                currentUser={currentUser}
               />
             )}
 
@@ -2694,47 +828,36 @@ export default function App() {
                 debts={debts}
                 onAddCustomer={handleAddCustomer}
                 onEditCustomer={handleEditCustomer}
-                onDeleteCustomer={handleDeleteCustomer}
-              />
-            )}
-
-            {activeTab === 'debts' && (
-              <DebtManager 
-                debts={debts}
-                onUpdateDebts={handleUpdateDebts}
-                onDeleteDebt={handleDeleteDebt}
-                customers={customers}
-                invoices={invoices}
-                printSettings={printSettings}
-                currentUser={currentUser}
               />
             )}
 
             {activeTab === 'suppliers' && (
               <SupplierManager 
                 suppliers={suppliers}
-                onUpdateSuppliers={saveSuppliers}
+                onUpdateSuppliers={handleUpdateSuppliers}
                 products={products}
                 onUpdateProduct={handleUpdateProduct}
-                onUpdateProducts={saveProducts}
                 imeis={imeis}
-                onUpdateImeis={saveImeis}
+                onUpdateImeis={handleUpdateImeis}
                 importOrders={importOrders}
-                onUpdateImportOrders={saveImportOrders}
+                onUpdateImportOrders={orders => {
+                  setImportOrders(orders);
+                  saveCollection('import_orders', orders);
+                }}
                 currentUser={currentUser}
-                onReloadData={() => loadCentralData(true)}
+                onReloadData={() => loadCentralData()}
               />
             )}
 
-            {activeTab === 'printSettings' && currentUser?.role === 'admin' && (
+            {activeTab === 'printSettings' && (
               <PrintSettingsManager 
                 printSettings={printSettings}
-                onUpdatePrintSettings={savePrintSettings}
-                currentUser={currentUser!}
+                onUpdatePrintSettings={handleUpdatePrintSettings}
+                currentUser={currentUser}
               />
             )}
 
-            {activeTab === 'accounts' && currentUser?.role === 'admin' && (
+            {activeTab === 'accounts' && currentUser.role === 'admin' && (
               <AccountManager 
                 currentUser={currentUser}
                 users={users}
@@ -2745,8 +868,8 @@ export default function App() {
             )}
           </motion.div>
         </AnimatePresence>
-
       </main>
+
     </div>
   );
 }
