@@ -38,10 +38,10 @@ export const Layout: React.FC<LayoutProps> = ({
   onQuickAction
 }) => {
   return (
-    <div className="min-h-screen bg-zinc-50 font-sans text-slate-800 flex flex-col md:flex-row antialiased selection:bg-indigo-100 selection:text-indigo-700">
+    <div className="flex h-screen w-screen overflow-hidden bg-zinc-50 font-sans text-slate-800 antialiased selection:bg-indigo-100 selection:text-indigo-700 flex-col md:flex-row">
       
-      {/* 1. PC macOS Glassmorphism Sidebar (Desktop) */}
-      <div className="hidden md:block shrink-0">
+      {/* 1. PC Sidebar (Desktop - Fixed h-full) */}
+      <div className="hidden md:block h-full shrink-0">
         <Sidebar 
           activeTab={activeTab}
           onNavigate={onNavigate}
@@ -50,10 +50,10 @@ export const Layout: React.FC<LayoutProps> = ({
         />
       </div>
 
-      {/* 2. Main Stage Container */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      {/* 2. Right Viewport Area (Topbar + Main Stage Container) */}
+      <div className="flex flex-1 flex-col h-full min-h-0 overflow-hidden">
         
-        {/* Top Header */}
+        {/* Top Header Bar */}
         <Header 
           currentUser={currentUser}
           activeTab={activeTab}
@@ -69,8 +69,8 @@ export const Layout: React.FC<LayoutProps> = ({
           printSettings={printSettings}
         />
 
-        {/* Dynamic Page Stage Content */}
-        <main className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 pb-20 md:pb-4 flex flex-col">
+        {/* Main Content Viewport with custom macOS scrollbar */}
+        <main className="flex-1 overflow-y-auto custom-mac-scrollbar p-3 sm:p-4 pb-20 md:pb-4 flex flex-col">
           {children}
         </main>
 

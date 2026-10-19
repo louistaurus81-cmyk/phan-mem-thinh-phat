@@ -435,27 +435,27 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 flex flex-col md:flex-row antialiased selection:bg-indigo-100 selection:text-indigo-700">
+    <div className="flex h-screen w-screen overflow-hidden bg-zinc-50 font-sans text-slate-800 flex-col md:flex-row antialiased selection:bg-indigo-100 selection:text-indigo-700">
       
       {/* ORIGINAL TOP HEADER */}
-      <header className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40 md:hidden">
+      <header className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between sticky top-0 z-40 md:hidden shrink-0">
         <div className="flex items-center gap-2">
           <TPLogo className="w-7 h-7 text-indigo-400" />
           <span className="font-extrabold text-sm tracking-tight">THỊNH PHÁT COMPUTER</span>
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-1.5 rounded-lg bg-slate-800 text-slate-200"
+          className="p-1.5 rounded-lg bg-slate-800 text-slate-200 cursor-pointer"
         >
           {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
       </header>
 
-      {/* ORIGINAL DARK SLATE SIDEBAR (100% ORIGINAL DESIGN) */}
-      <nav className={`w-full md:w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 ${isMobileMenuOpen ? 'block' : 'hidden md:flex'}`}>
-        <div>
+      {/* MODERN SAAS DARK SLATE SIDEBAR */}
+      <nav className={`w-full md:w-64 bg-[#0B1120] border-r border-slate-800/50 flex flex-col justify-between shrink-0 select-none h-full ${isMobileMenuOpen ? 'block' : 'hidden md:flex'}`}>
+        <div className="flex flex-col h-full overflow-hidden">
           {/* Logo & Store Info */}
-          <div className="p-4 border-b border-slate-800 flex items-center gap-3">
+          <div className="p-4 border-b border-slate-800/50 flex items-center gap-3 shrink-0">
             <TPLogo className="w-9 h-9 text-indigo-500 shrink-0" />
             <div>
               <h2 className="font-black text-white text-sm tracking-tight">{printSettings.storeName}</h2>
@@ -464,159 +464,185 @@ export default function App() {
           </div>
 
           {/* Sidebar Menu Items */}
-          <div className="p-2 space-y-1">
+          <div className="p-2 space-y-1 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {currentUser.role === 'admin' && (
               <button
                 onClick={() => { setActiveTab('owner'); setIsMobileMenuOpen(false); }}
-                className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                  activeTab === 'owner' ? 'bg-amber-500 text-slate-950 font-black shadow-md' : 'text-amber-400 hover:bg-slate-800'
+                className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                  activeTab === 'owner' 
+                    ? 'bg-gradient-to-r from-amber-500/20 to-transparent text-amber-300 font-bold border-l-4 border-amber-500 rounded-r-lg' 
+                    : 'text-amber-400/90 hover:bg-slate-800/50 hover:text-amber-300 rounded-lg'
                 }`}
               >
-                <Crown className="w-4 h-4 text-amber-400" />
+                <Crown className="w-4 h-4 text-amber-400 shrink-0" />
                 <span>Bảng Chủ Shop 👑</span>
               </button>
             )}
 
             <button
               onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'dashboard'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <LayoutDashboard className="w-4 h-4" />
+              <LayoutDashboard className={`w-4 h-4 shrink-0 ${activeTab === 'dashboard' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Bảng Điều Khiển</span>
             </button>
 
             {currentUser.role === 'admin' && (
               <button
                 onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }}
-                className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                  activeTab === 'reports' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+                className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                  activeTab === 'reports'
+                    ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                    : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
                 }`}
               >
-                <BarChart3 className="w-4 h-4" />
+                <BarChart3 className={`w-4 h-4 shrink-0 ${activeTab === 'reports' ? 'text-indigo-400' : 'text-slate-400'}`} />
                 <span>Báo Cáo Doanh Thu</span>
               </button>
             )}
 
             <button
               onClick={() => { setActiveTab('sales'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'sales' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'sales'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <ShoppingBag className="w-4 h-4" />
+              <ShoppingBag className={`w-4 h-4 shrink-0 ${activeTab === 'sales' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Quản Lý Bán Hàng & Kho</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('buildpc'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'buildpc' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'buildpc'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <Cpu className="w-4 h-4" />
+              <Cpu className={`w-4 h-4 shrink-0 ${activeTab === 'buildpc' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Tự Build Cấu Hình PC</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('repairs'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'repairs' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'repairs'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <Wrench className="w-4 h-4" />
+              <Wrench className={`w-4 h-4 shrink-0 ${activeTab === 'repairs' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Tiếp Nhận Sửa Chữa</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('warranties'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'warranties' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'warranties'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'warranties' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Bảo Hành Điện Tử</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('suppliers'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'suppliers' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'suppliers'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <Building2 className="w-4 h-4" />
+              <Building2 className={`w-4 h-4 shrink-0 ${activeTab === 'suppliers' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Nhà Cung Cấp</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('debts'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'debts' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'debts'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <ReceiptText className="w-4 h-4" />
+              <ReceiptText className={`w-4 h-4 shrink-0 ${activeTab === 'debts' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Quản Lý Công Nợ</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('customers'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'customers' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'customers'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className={`w-4 h-4 shrink-0 ${activeTab === 'customers' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Quản Lý Khách Hàng</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('printSettings'); setIsMobileMenuOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                activeTab === 'printSettings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+              className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                activeTab === 'printSettings'
+                  ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
               }`}
             >
-              <Printer className="w-4 h-4" />
+              <Printer className={`w-4 h-4 shrink-0 ${activeTab === 'printSettings' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>Cấu Hình Mẫu In</span>
             </button>
 
             {currentUser.role === 'admin' && (
               <button
                 onClick={() => { setActiveTab('accounts'); setIsMobileMenuOpen(false); }}
-                className={`w-full text-left px-3 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2.5 transition cursor-pointer ${
-                  activeTab === 'accounts' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800'
+                className={`w-full text-left px-3 py-2.5 text-xs flex items-center gap-2.5 transition-all duration-200 cursor-pointer ${
+                  activeTab === 'accounts'
+                    ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                    : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
                 }`}
               >
-                <UserCog className="w-4 h-4" />
+                <UserCog className={`w-4 h-4 shrink-0 ${activeTab === 'accounts' ? 'text-indigo-400' : 'text-slate-400'}`} />
                 <span>Quản Lý Nhân Viên</span>
               </button>
             )}
           </div>
-        </div>
 
-        {/* User Info & Logout Footer */}
-        <div className="p-3 border-t border-slate-800 space-y-2">
-          <div className="flex items-center gap-2 bg-slate-800/80 p-2 rounded-xl">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white font-black flex items-center justify-center text-xs shrink-0">
-              {currentUser.fullName.charAt(0).toUpperCase()}
+          {/* User Info & Logout Footer */}
+          <div className="p-3 border-t border-slate-800/50 space-y-2 shrink-0">
+            <div className="flex items-center gap-2 bg-transparent border border-slate-800 rounded-xl p-2 hover:bg-slate-800/30 transition-all duration-200">
+              <div className="w-8 h-8 rounded-lg bg-indigo-600/80 text-white font-black flex items-center justify-center text-xs shrink-0 shadow-inner">
+                {currentUser.fullName.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-slate-200 truncate">{currentUser.fullName}</p>
+                <p className="text-[10px] text-slate-400 font-mono capitalize">{currentUser.role}</p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-slate-100 truncate">{currentUser.fullName}</p>
-              <p className="text-[10px] text-slate-400 font-mono capitalize">{currentUser.role}</p>
-            </div>
+
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-3 py-2 rounded-xl font-medium text-xs text-slate-400 hover:text-red-400 hover:bg-slate-800/30 transition-all duration-200 cursor-pointer flex items-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Đăng Xuất</span>
+            </button>
           </div>
-
-          <button
-            onClick={handleLogout}
-            className="w-full text-left px-3 py-2 rounded-xl font-bold text-xs text-rose-400 hover:bg-rose-950/40 transition cursor-pointer flex items-center gap-2"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Đăng Xuất</span>
-          </button>
         </div>
       </nav>
 
-      {/* ORIGINAL PRIMARY MAIN CONTENT STAGE */}
-      <main className="flex-1 h-full min-h-0 overflow-hidden px-3 py-3 md:p-4 flex flex-col">
+      {/* RIGHT SIDE MAIN VIEWPORT CONTAINER */}
+      <div className="flex flex-1 flex-col h-full min-h-0 overflow-hidden">
+        {/* PRIMARY MAIN CONTENT STAGE */}
+        <main className="flex-1 overflow-y-auto custom-mac-scrollbar px-3 py-3 md:p-4 flex flex-col">
         
         {/* Workspace Dynamic Title Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3 border-b border-slate-200 pb-3 shrink-0">
@@ -869,6 +895,7 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+      </div>
 
     </div>
   );

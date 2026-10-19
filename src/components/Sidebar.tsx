@@ -13,8 +13,7 @@ import {
   Crown, 
   ReceiptText, 
   BarChart3,
-  LogOut,
-  Sparkles
+  LogOut
 } from 'lucide-react';
 import TPLogo from './TPLogo';
 
@@ -35,40 +34,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     ...(isOwnerAdmin ? [
-      { id: 'owner', label: 'Bảng Chủ Shop', icon: Crown, badge: '👑 Realtime', color: 'text-amber-500' }
+      { id: 'owner', label: 'Bảng Chủ Shop', icon: Crown, badge: '👑 Realtime', color: 'text-amber-400' }
     ] : []),
     { id: 'dashboard', label: 'Bảng Điều Khiển', icon: LayoutDashboard },
     ...(isOwnerAdmin ? [
       { id: 'reports', label: 'Báo Cáo Doanh Thu', icon: BarChart3 }
     ] : []),
-    { id: 'sales', label: 'Bán Hàng & Kho', icon: ShoppingBag },
-    { id: 'buildpc', label: 'Build Cấu Hình PC', icon: Cpu },
+    { id: 'sales', label: 'Quản Lý Bán Hàng & Kho', icon: ShoppingBag },
+    { id: 'buildpc', label: 'Tự Build Cấu Hình PC', icon: Cpu },
     { id: 'repairs', label: 'Tiếp Nhận Sửa Chữa', icon: Wrench },
     { id: 'warranties', label: 'Bảo Hành Điện Tử', icon: ShieldCheck },
     { id: 'suppliers', label: 'Nhà Cung Cấp', icon: Building2 },
     { id: 'debts', label: 'Quản Lý Công Nợ', icon: ReceiptText },
-    { id: 'customers', label: 'Khách Hàng (CRM)', icon: Users },
-    { id: 'printSettings', label: 'Cấu Hình Bản In', icon: Printer },
+    { id: 'customers', label: 'Quản Lý Khách Hàng', icon: Users },
+    { id: 'printSettings', label: 'Cấu Hình Mẫu In', icon: Printer },
     ...(isOwnerAdmin ? [
       { id: 'accounts', label: 'Quản Lý Nhân Viên', icon: UserCog }
     ] : []),
   ];
 
   return (
-    <aside className="w-64 backdrop-blur-md bg-white/70 border-r border-zinc-200/60 h-screen flex flex-col justify-between p-3 select-none shrink-0">
-      
-      {/* Top Branding Logo */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-zinc-200/50 pb-3">
-          <TPLogo className="w-8 h-8 shrink-0 text-indigo-600" />
+    <aside className="w-64 bg-[#0B1120] border-r border-slate-800/50 h-screen flex flex-col justify-between select-none shrink-0">
+      <div className="flex flex-col h-full overflow-hidden">
+        
+        {/* Top Branding Logo */}
+        <div className="p-4 border-b border-slate-800/50 flex items-center gap-3 shrink-0">
+          <TPLogo className="w-9 h-9 shrink-0 text-indigo-500" />
           <div>
-            <span className="font-black text-slate-900 tracking-tight text-sm block">THỊNH PHÁT</span>
-            <span className="text-[10px] text-indigo-600 font-extrabold uppercase tracking-wider block">Computer macOS UI</span>
+            <span className="font-black text-white tracking-tight text-sm block">THỊNH PHÁT</span>
+            <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider block">SaaS Modern Edition</span>
           </div>
         </div>
 
         {/* Navigation Menu Links */}
-        <nav className="space-y-1">
+        <nav className="p-2 space-y-1 flex-1 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {navItems.map(item => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -77,20 +76,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`w-full px-3 py-2.5 rounded-xl font-bold text-xs flex items-center justify-between transition-all cursor-pointer ${
+                className={`w-full text-left px-3 py-2.5 text-xs flex items-center justify-between transition-all duration-200 cursor-pointer ${
                   isActive
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200/80'
-                    : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
+                    ? 'bg-gradient-to-r from-indigo-500/20 to-transparent text-white font-medium border-l-4 border-indigo-500 rounded-r-lg'
+                    : 'text-slate-300 hover:bg-slate-800/50 hover:text-white rounded-lg'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : item.color || 'text-slate-500'}`} />
-                  <span>{item.label}</span>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-400' : item.color || 'text-slate-400'}`} />
+                  <span className="truncate">{item.label}</span>
                 </div>
 
                 {item.badge && (
-                  <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-md ${
-                    isActive ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md shrink-0 ${
+                    isActive ? 'bg-indigo-500/20 text-indigo-300' : 'bg-amber-500/20 text-amber-300'
                   }`}>
                     {item.badge}
                   </span>
@@ -99,26 +98,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </nav>
-      </div>
 
-      {/* Bottom Footer Details */}
-      <div className="space-y-2 pt-3 border-t border-zinc-200/50">
-        <div className="p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-100 text-center">
-          <p className="text-[10px] font-extrabold text-indigo-900 flex items-center justify-center gap-1">
-            <Sparkles className="w-3 h-3 text-indigo-600" /> THỊNH PHÁT v1.2 LAN
-          </p>
-          <p className="text-[9px] text-slate-500 font-medium mt-0.5">An toàn dữ liệu tuyệt đối</p>
+        {/* Bottom User Profile Footer Details */}
+        <div className="p-3 border-t border-slate-800/50 space-y-2 shrink-0">
+          <div className="flex items-center gap-2 bg-transparent border border-slate-800 rounded-xl p-2 hover:bg-slate-800/30 transition-all duration-200">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600/80 text-white font-black flex items-center justify-center text-xs shrink-0 shadow-inner">
+              {currentUser?.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-slate-200 truncate">{currentUser?.fullName || 'Người Dùng'}</p>
+              <p className="text-[10px] text-slate-400 font-mono capitalize">{currentUser?.role || 'Nhân viên'}</p>
+            </div>
+          </div>
+
+          <button
+            onClick={onLogout}
+            className="w-full text-left px-3 py-2 rounded-xl font-medium text-xs text-slate-400 hover:text-red-400 hover:bg-slate-800/30 transition-all duration-200 cursor-pointer flex items-center gap-2"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Đăng Xuất</span>
+          </button>
         </div>
 
-        <button
-          onClick={onLogout}
-          className="w-full px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition flex items-center gap-2 cursor-pointer"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Đăng Xuất</span>
-        </button>
       </div>
-
     </aside>
   );
 };
