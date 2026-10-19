@@ -1205,22 +1205,22 @@ export default function SalesManager({
                     <td className="py-3 font-bold text-slate-900">{formatVND(inv.totalAmount)}</td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {userPerms.canEditInvoices && onUpdateInvoice && (
+                        {(currentUser?.role === 'admin' || userPerms.canEditInvoices) && onUpdateInvoice && (
                           <button 
                             id={`btn-edit-invoice-${inv.id}`}
                             onClick={() => setEditingInvoice(inv)}
-                            className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            className="p-1.5 text-amber-600 hover:bg-amber-50 border border-amber-200/60 rounded-lg transition cursor-pointer"
                             title="Chỉnh sửa hóa đơn"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
                         )}
-                        {userPerms.canDeleteInvoices && onDeleteInvoice && (
+                        {currentUser?.role === 'admin' && onDeleteInvoice && (
                           <button 
                             id={`btn-delete-invoice-${inv.id}`}
                             onClick={() => setDeletingInvoice(inv)}
-                            className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                            title="Xóa hóa đơn"
+                            className="p-1.5 text-rose-600 hover:bg-rose-50 border border-rose-200/60 rounded-lg transition cursor-pointer"
+                            title="Xóa hóa đơn (Chỉ Admin)"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

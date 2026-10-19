@@ -205,7 +205,7 @@ export async function writeJSONSafe<T = any>(
 
   const shouldBackup = options?.backup ?? true;
   const backupExt = options?.backupExt ?? ".bak";
-  const spaces = options?.spaces ?? 2;
+  const spaces = options?.spaces ?? 0;
   const shouldCreateDir = options?.createDir ?? true;
 
   const dirName = path.dirname(normalizedPath);

@@ -219,18 +219,18 @@ export function getUserPermissions(user: User | null): Required<UserPermissions>
   const isTech = user.role === 'technician';
 
   return {
-    canManageInventory: p.canManageInventory ?? false,
-    canEditStock: false,
+    canManageInventory: p.canManageInventory ?? (isSales ? true : false),
+    canEditStock: p.canEditStock ?? false,
     canManageSales: p.canManageSales ?? (isSales || isTech),
     canManageRepairs: p.canManageRepairs ?? isTech,
     canManageWarranty: p.canManageWarranty ?? true,
     canManageCustomers: p.canManageCustomers ?? true,
     canViewDebt: p.canViewDebt ?? isSales,
     canManageSuppliers: p.canManageSuppliers ?? false,
-    canViewReports: false,
-    canManageSettings: false,
-    canEditInvoices: false,
-    canDeleteInvoices: false,
+    canViewReports: p.canViewReports ?? false,
+    canManageSettings: p.canManageSettings ?? false,
+    canEditInvoices: p.canEditInvoices ?? (isSales || isTech),
+    canDeleteInvoices: p.canDeleteInvoices ?? false,
   };
 }
 

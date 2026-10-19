@@ -11,6 +11,7 @@ import {
   INITIAL_REPAIRS, 
   INITIAL_WARRANTIES 
 } from "./src/mockData";
+import { getUserPermissions } from "./src/types";
 import { 
   readJSON, 
   writeJSONSafe, 
@@ -330,10 +331,17 @@ async function startServer() {
       const keys = ["products", "customers", "invoices", "repairs", "warranties", "categories", "users", "settings", "imeis", "debts", "suppliers", "import_orders", "activities"];
       const responseBody: Record<string, any> = {};
 
-      for (const k of keys) {
-        const filePath = path.join(DATA_DIR, `${k}.json`);
-        responseBody[k] = await readJSON(filePath, []);
-      }
+      const results = await Promise.all(
+        keys.map(async k => {
+          const filePath = path.join(DATA_DIR, `${k}.json`);
+          const data = await readJSON(filePath, []);
+          return { key: k, data };
+        })
+      );
+
+      results.forEach(item => {
+        responseBody[item.key] = item.data;
+      });
 
       // 🛡️ SERVER-SIDE SENSITIVE FILTERING:
       // If role is sales or technician (or unauthenticated guest), strictly scrub 'cost' from products
@@ -614,6 +622,186 @@ async function startServer() {
       res.json({ success: true });
     } catch (err: any) {
       console.error(`Error saving database ${req.body?.type}:`, err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API: Cập nhật quyền hạn nhân viên (User Permissions Update)
+  app.put("/api/users/:id/permissions", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const userId = req.params.id;
+      const { permissions, role, fullName, phone, password } = req.body;
+
+      const usersPath = path.join(DATA_DIR, "users.json");
+      const users = await readJSON<any[]>(usersPath, []);
+      const userIdx = users.findIndex(u => u.id === userId);
+
+      if (userIdx === -1) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy tài khoản nhân viên" });
+      }
+
+      if (role) users[userIdx].role = role;
+      if (fullName) users[userIdx].fullName = fullName;
+      if (phone !== undefined) users[userIdx].phone = phone;
+
+      if (password && typeof password === "string" && password.trim().length > 0) {
+        users[userIdx].password = hashPassword(password);
+      }
+
+      if (permissions) {
+        if (Array.isArray(permissions)) {
+          const permObj: any = {};
+          permissions.forEach((pKey: string) => {
+            permObj[pKey] = true;
+          });
+          users[userIdx].permissions = permObj;
+        } else {
+          users[userIdx].permissions = permissions;
+        }
+      }
+
+      await writeJSONSafe(usersPath, users, { backup: true });
+      res.json({
+        success: true,
+        message: `Đã cập nhật quyền hạn cho nhân viên ${users[userIdx].fullName} thành công!`,
+        user: sanitizeUsers([users[userIdx]])[0]
+      });
+    } catch (err: any) {
+      console.error("Lỗi khi cập nhật quyền hạn user:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API: Xóa Hóa Đơn Bán Hàng & Hoàn Trả Tồn Kho (Delete Invoice with Stock Restoration)
+  app.delete("/api/invoices/:id", authenticateToken, async (req, res) => {
+    try {
+      const invoiceId = req.params.id;
+      const user = (req as any).user;
+
+      if (user?.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          error: "Từ chối truy cập: Thao tác XÓA hóa đơn bắt buộc quyền Quản trị viên (Admin)!"
+        });
+      }
+
+      const invPath = path.join(DATA_DIR, "invoices.json");
+      const prodsPath = path.join(DATA_DIR, "products.json");
+      const imeisPath = path.join(DATA_DIR, "imeis.json");
+      const debtsPath = path.join(DATA_DIR, "debts.json");
+      const actPath = path.join(DATA_DIR, "activities.json");
+
+      const invoices = await readJSON<any[]>(invPath, []);
+      const products = await readJSON<any[]>(prodsPath, []);
+      const imeis = await readJSON<any[]>(imeisPath, []);
+      const debts = await readJSON<any[]>(debtsPath, []);
+      const activities = await readJSON<any[]>(actPath, []);
+
+      const invIdx = invoices.findIndex(i => i.id === invoiceId);
+      if (invIdx === -1) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy hóa đơn cần xóa" });
+      }
+
+      const targetInv = invoices[invIdx];
+
+      // 1. Hoàn lại tồn kho sản phẩm & khôi phục trạng thái IMEI
+      for (const item of (targetInv.items || [])) {
+        const pIdx = products.findIndex(p => p.id === item.productId || p.sku === item.productId);
+        if (pIdx !== -1) {
+          products[pIdx].stock = (products[pIdx].stock || 0) + Number(item.quantity || 1);
+        }
+
+        if (item.imeis && Array.isArray(item.imeis)) {
+          for (const im of item.imeis) {
+            const imeiIdx = imeis.findIndex(i => i.imei === im || i.id === im);
+            if (imeiIdx !== -1) {
+              imeis[imeiIdx].status = 'in_stock';
+              imeis[imeiIdx].in_stock = true;
+              delete imeis[imeiIdx].invoiceId;
+              delete imeis[imeiIdx].soldAt;
+            }
+          }
+        }
+      }
+
+      // 2. Xóa bản ghi công nợ tương ứng nếu có
+      const updatedDebts = debts.filter(d => d.invoiceId !== targetInv.id && d.invoiceNumber !== targetInv.invoiceNumber);
+
+      // 3. Xóa hóa đơn
+      const updatedInvoices = invoices.filter(i => i.id !== invoiceId);
+
+      // 4. Ghi nhật ký
+      activities.unshift({
+        id: `act_${Date.now()}`,
+        type: 'sale',
+        title: 'Xóa hóa đơn bán hàng',
+        details: `Đã xóa hóa đơn ${targetInv.invoiceNumber} (${targetInv.customerName}) và hoàn trả tồn kho sản phẩm.`,
+        userName: user?.fullName || 'Admin',
+        userRole: user?.role || 'admin',
+        userId: user?.id || 'admin',
+        timestamp: new Date().toISOString(),
+        severity: 'danger'
+      });
+
+      await writeJSONSafe(invPath, updatedInvoices, { backup: true });
+      await writeJSONSafe(prodsPath, products, { backup: true });
+      await writeJSONSafe(imeisPath, imeis, { backup: true });
+      await writeJSONSafe(debtsPath, updatedDebts, { backup: true });
+      await writeJSONSafe(actPath, activities.slice(0, 100), { backup: false });
+
+      res.json({
+        success: true,
+        message: `Đã xóa hóa đơn ${targetInv.invoiceNumber} và hoàn trả sản phẩm vào tồn kho thành công!`,
+        updatedInvoices
+      });
+    } catch (err: any) {
+      console.error("Lỗi khi xóa hóa đơn:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // API: Chỉnh Sửa Hóa Đơn Bán Hàng (Update Invoice Details)
+  app.put("/api/invoices/:id", authenticateToken, async (req, res) => {
+    try {
+      const invoiceId = req.params.id;
+      const user = (req as any).user;
+
+      const usersPath = path.join(DATA_DIR, "users.json");
+      const users = await readJSON<any[]>(usersPath, []);
+      const currentUserDb = users.find(u => u.id === user?.id);
+      const perms = getUserPermissions(currentUserDb || user);
+
+      if (user?.role !== "admin" && !perms.canEditInvoices) {
+        return res.status(403).json({
+          success: false,
+          error: "Từ chối truy cập: Bạn không có quyền chỉnh sửa hóa đơn đã lập!"
+        });
+      }
+
+      const invPath = path.join(DATA_DIR, "invoices.json");
+      const invoices = await readJSON<any[]>(invPath, []);
+      const invIdx = invoices.findIndex(i => i.id === invoiceId);
+
+      if (invIdx === -1) {
+        return res.status(404).json({ success: false, error: "Không tìm thấy hóa đơn cần cập nhật" });
+      }
+
+      const updatedData = req.body;
+      invoices[invIdx] = {
+        ...invoices[invIdx],
+        ...updatedData,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user?.fullName || 'User'
+      };
+
+      await writeJSONSafe(invPath, invoices, { backup: true });
+      res.json({
+        success: true,
+        message: `Cập nhật hóa đơn ${invoices[invIdx].invoiceNumber} thành công!`,
+        invoice: invoices[invIdx]
+      });
+    } catch (err: any) {
+      console.error("Lỗi khi sửa hóa đơn:", err);
       res.status(500).json({ success: false, error: err.message });
     }
   });

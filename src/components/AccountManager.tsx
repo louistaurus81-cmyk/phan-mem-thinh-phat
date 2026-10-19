@@ -359,7 +359,13 @@ export default function AccountManager({
                         <div className="flex items-center gap-1.5">
                           <button
                             id={`btn-edit-user-${u.id}`}
-                            onClick={() => setEditingUser({ ...u })}
+                            onClick={() => setEditingUser({ 
+                              ...u, 
+                              permissions: { 
+                                ...getUserPermissions(u), 
+                                ...(u.permissions || {}) 
+                              } 
+                            })}
                             className="px-2.5 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer flex items-center gap-1"
                             title="Chỉnh sửa thông tin & phân quyền"
                           >
@@ -808,8 +814,8 @@ export default function AccountManager({
 
                     <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5 max-h-60 overflow-y-auto">
                       {PERMISSION_CONFIG_LIST.map((p) => {
-                        const curPerms = getUserPermissions(editingUser);
-                        const isChecked = !!curPerms[p.key];
+                        const currentPermissions = editingUser.permissions || getUserPermissions(editingUser);
+                        const isChecked = !!currentPermissions[p.key];
                         return (
                           <label key={p.key} className="flex items-start gap-3 p-2 hover:bg-white rounded-xl transition cursor-pointer border border-transparent hover:border-slate-200">
                             <input 
@@ -819,12 +825,11 @@ export default function AccountManager({
                                 const newVal = e.target.checked;
                                 setEditingUser(prev => {
                                   if (!prev) return null;
+                                  const existingPerms = prev.permissions ? { ...prev.permissions } : getUserPermissions(prev);
+                                  existingPerms[p.key] = newVal;
                                   return {
                                     ...prev,
-                                    permissions: {
-                                      ...(prev.permissions || {}),
-                                      [p.key]: newVal
-                                    }
+                                    permissions: existingPerms
                                   };
                                 });
                               }}
